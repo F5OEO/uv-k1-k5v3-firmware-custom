@@ -348,8 +348,9 @@ PWR           2     2
 
 **No pointer to COMP, OPA, TIM1, TIM3, TIM7 or TIM14-17 anywhere.** ADC1 appears
 twice (init + read), matching a factory firmware that uses the ADC for nothing
-but the battery. USBD and FLASH_R are concentrated in the bootloader, as
-expected for USB-C flashing.
+but the battery. FLASH_R is bootloader-only (5 / 0), as expected for USB-C
+flashing. USBD is split evenly (12 / 12) because the **same USB CDC stack is
+linked into both images** - see §6.7.
 
 Caveats: this counts literals only, so anything reached by base+offset
 arithmetic is invisible; and SYSCFG / COMP1-3 / OPA sit only 0x10-0x300 apart,
@@ -437,6 +438,76 @@ the application is still not decoded as code — the residue of indirect dispatc
 that neither tool fully resolves. The three functions this document relies on
 (`FUN_0800dcfc`, `FUN_0800f734`, `FUN_0800f82c`) are present and unchanged in
 both passes.
+### 6.7 The factory application has its own USB CDC stack
+
+USB is not bootloader-only. The nine functions touching the USBD peripheral in
+the bootloader have an exact counterpart in the application - same sizes, same
+xref counts, same order:
+
+```
+0x08000fbc / 0x08011820  324 B      0x08001804 / 0x08012a60   66 B
+0x080014c8 / 0x08012724   28 B      0x08001850 / 0x08012aac   96 B
+0x080016a8 / 0x08012904   76 B      0x080018bc / 0x08012b18  160 B
+0x080016fc / 0x08012958   48 B      0x08001bdc / 0x08012e38   18 B
+0x08001730 / 0x0801298c  204 B
+```
+
+Of those 1020 bytes, eight functions are **bit-for-bit identical**; the ninth
+differs in 17 bytes, all inside relative branch immediates - the signature of
+the same object linked at a different address.
+
+The descriptor block is duplicated too: `0x08002000` in the bootloader,
+`0x080132b4` in the application, identical over the first 0x80 bytes.
+
+```
+12 01 00 02 ef 02 01 40 b7 36 01 00 00 01 01 02 03 01
+```
+
+USB 2.0; `bDeviceClass` EF / 02 / 01 is the Interface Association Descriptor
+signature of a **CDC composite** device; VID **0x36B7**, PID **0x0001**;
+64-byte EP0. The configuration descriptor that follows declares
+`wTotalLength` 75 and **2 interfaces** (CDC control + data), bus-powered,
+100 mA, with CDC header (`05 24 00`) and union (`05 24 06`) functional
+descriptors present in both copies.
+
+So the factory application enumerates as a USB CDC ACM serial port in its own
+right - the native path for host tools in normal mode, separate from the
+bootloader's flashing mode. This firmware does not reuse that stack: it builds
+its own from CherryUSB (`Middlewares/CherryUSB/`, `App/usb/usbd_cdc_if.c`,
+`App/driver/vcp.c`) under `ENABLE_USB`.
+
+**It is started unconditionally at boot.** Two independent confirmations:
+
+1. The application's *own* vector table carries a USB interrupt handler.
+   Slot 47 (`0x080028bc`, = IRQ31 = `USB_IRQn` per `py32f071xB.h`) holds
+   `0x08011971`, i.e. `FUN_08011970`, which is the only USB function with no
+   ordinary caller.
+2. The init path from reset contains no conditionals:
+
+```
+reset vector 0x080028d5
+  -> 0x080028d4  ldr r0,[pc,#16] ; 0x08011811 / blx r0     low-level init
+                 ldr r0,[pc,#16] ; 0x080028c1 / bx  r0
+  -> 0x080028c0  mov sp,#0x200032c0 / bl 0x0800319c        .data + .bss
+                 ldr r0,[pc,#0]  ; 0x08012509 / bx  r0
+  -> FUN_08012508   factory main()
+     -> FUN_0800f5c8    board init aggregator
+        -> FUN_0800f734 (the PA4 / DAC setup of SS6.3)
+        -> FUN_08010a0c -> FUN_0801236c -> FUN_08012dfc -> USB
+```
+
+Every edge is a straight-line call, and the whole chain runs before `main`
+reaches its first boot-mode branch. Note that reset reaches `main` through
+`bx r0` on a literal, not a direct call, which is why Ghidra's call graph
+never linked the two.
+
+`FUN_08012508` is clearly the ancestor of this repository's `Main()`: it calls
+`FUN_0800dcfc` (the ADC battery read) with a pointer pair, then fills a
+four-entry array with `FUN_0800dcfc(i * 2 + base, ...)` - the uint16_t stride
+of `App/main.c`'s `for (i = 0; i < ARRAY_SIZE(gBatteryVoltages); i++)
+BOARD_ADC_GetBatteryInfo(&gBatteryVoltages[i], &gBatteryCurrent);` - before
+branching on two flags the way `BOOT_GetMode()` does.
+
 
 ## Appendix: reference data
 

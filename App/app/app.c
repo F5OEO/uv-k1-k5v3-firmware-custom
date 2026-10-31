@@ -61,6 +61,9 @@
 #include "driver/keyboard.h"
 #include "driver/st7565.h"
 #include "driver/system.h"
+#ifdef ENABLE_CTCSS_REVERSE
+    #include "dcs.h"
+#endif
 #include "dtmf.h"
 #include "external/printf/printf.h"
 #include "frequencies.h"
@@ -377,6 +380,69 @@ void APP_ModalScreenSaverExit(void)
 #endif
 }
 
+#ifdef ENABLE_CTCSS_REVERSE
+// Reverse tone squelch over a RANGE of tones.
+//
+// Audio is muted only while the received sub-audible tone is one of CTCSS indices
+// 0..REVTONE_LAST_INDEX (67.0 .. 94.8 Hz). No tone at all, or any tone above that
+// range, is passed through.
+//
+// The chip's found/lost detector compares against the single tone programmed in
+// REG_07, so it cannot answer "is the tone inside this range". We read the measured
+// tone frequency instead (REG_68, the source the CxCSS scan uses) and map it to a
+// table index with DCS_GetCtcssCode(), which only matches within +/-5.0 Hz.
+#define REVTONE_LAST_INDEX     10   // 94.8 Hz
+#define REVTONE_SETTLE_10MS    10   // 100 ms fallback: no valid sample ever arrived
+#define REVTONE_AGREE          2    // consecutive identical reads, as the scan does
+
+static uint8_t revToneSettle_10ms;
+static uint8_t revToneAgree;
+static uint8_t revToneLastCode;
+static bool    revToneDecided;
+static bool    revToneMuted;
+
+static void RevTone_Reset(void)
+{
+    revToneSettle_10ms = REVTONE_SETTLE_10MS;
+    revToneAgree       = 0;
+    revToneLastCode    = 0xFF;
+    revToneDecided     = false;
+    revToneMuted       = false;
+}
+
+// every 10ms while the squelch is open
+static void RevTone_Poll(void)
+{
+    const uint16_t freq_10Hz = BK4819_GetCTCSSFreq10Hz();
+
+    if (freq_10Hz > 0)
+    {
+        const uint8_t code = DCS_GetCtcssCode(freq_10Hz);
+
+        if (code != 0xFF && code == revToneLastCode)
+        {
+            if (revToneAgree < REVTONE_AGREE)
+                revToneAgree++;
+
+            if (revToneAgree >= REVTONE_AGREE)
+            {   // a real tone, confirmed by two agreeing valid samples
+                if (code <= REVTONE_LAST_INDEX)
+                    revToneMuted = true;   // latched until the carrier drops
+
+                revToneDecided = true;     // open or stay muted, but decide now
+            }
+        }
+        else
+            revToneAgree = 0;
+
+        revToneLastCode = code;
+    }
+
+    if (revToneSettle_10ms > 0 && --revToneSettle_10ms == 0)
+        revToneDecided = true;   // nothing in the blocked range turned up
+}
+#endif
+
 static void CheckForIncoming(void)
 {
     if (!g_SquelchLost)
@@ -525,6 +591,11 @@ static void HandleIncoming(void)
     // Defensive: do not leave FM scan for a main-channel signal.
     if (gFmRadioMode && gFM_ScanState != FM_SCAN_OFF)
         return;
+#endif
+
+#ifdef ENABLE_CTCSS_REVERSE
+    if (revToneMuted || !revToneDecided)
+        return;   // tone inside the blocked range, or still measuring
 #endif
 
     APP_StartListening(gMonitor ? FUNCTION_MONITOR : FUNCTION_RECEIVE);
@@ -1889,6 +1960,21 @@ void APP_TimeSlice10ms(void)
         return;
 
     UI_MAIN_TimeSlice10ms();   // scan-list name hold countdown (10 ms resolution)
+
+#ifdef ENABLE_CTCSS_REVERSE
+    if (!g_SquelchLost)
+        RevTone_Reset();
+    else if (FUNCTION_IsRx())
+    {
+        RevTone_Poll();
+
+        if (revToneMuted && gEnableSpeaker)
+        {   // a blocked tone turned up after we had already opened the audio
+            AUDIO_AudioPathOff();
+            gEnableSpeaker = false;
+        }
+    }
+#endif
 
     if (gCurrentFunction != FUNCTION_POWER_SAVE || !gRxIdleMode)
         CheckRadioInterrupts();

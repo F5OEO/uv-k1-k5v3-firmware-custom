@@ -154,6 +154,9 @@ void     BK4819_SetRxAudioGain(void);
 
 bool     BK4819_GetFrequencyScanResult(uint32_t *pFrequency);
 BK4819_CssScanResult_t BK4819_GetCxCSSScanResult(uint32_t *pCdcssFreq, uint16_t *pCtcssFreq);
+#ifdef ENABLE_CTCSS_REVERSE
+uint16_t BK4819_GetCTCSSFreq10Hz(void);
+#endif
 void     BK4819_SetFrequencyScan(bool enable);
 void     BK4819_SetScanFrequency(uint32_t Frequency);
 

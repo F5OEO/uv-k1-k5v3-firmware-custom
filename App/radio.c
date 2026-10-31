@@ -915,6 +915,34 @@ void RADIO_SetupRegisters(bool switchToForeground)
                     break;
             }
 
+#if defined(ENABLE_CTCSS_REVERSE) && defined(ENABLE_CTCSS_REVERSE_MEASMODE)
+            // Free-running measurement mode (CxCSS compare disabled): the REG_51
+            // configuration BK4819_SetScanFrequency() uses, byte for byte. It
+            // deliberately replaces the compare setup the switch above just wrote, so
+            // REG_68 reports a measured frequency instead of a match against one
+            // expected tone.
+            //
+            // BELIEVED REQUIRED, NOT CONFIRMED. On the V1 radio a build with this
+            // override off did fail to block, but that test turned out to be on an AM
+            // channel, where this whole branch is skipped and REG_68 reports nothing
+            // either way - so it proved nothing. The mechanism is plausible and 1 is the
+            // default that demonstrably works there; a MEASMODE=0 build has never been
+            // tested in FM, and nothing here has been tested on the BK4829 at all.
+            //
+            // Note REG_51<15> is "Enable TxCTCSS/CDCSS" per the BK4819 register list,
+            // i.e. transmit only, so this override is not what makes the received
+            // sub-audible tone audible.
+            BK4819_WriteRegister(BK4819_REG_51,
+                BK4819_REG_51_DISABLE_CxCSS         |
+                BK4819_REG_51_GPIO6_PIN2_NORMAL     |
+                BK4819_REG_51_TX_CDCSS_POSITIVE     |
+                BK4819_REG_51_MODE_CDCSS            |
+                BK4819_REG_51_CDCSS_23_BIT          |
+                BK4819_REG_51_1050HZ_NO_DETECTION   |
+                BK4819_REG_51_AUTO_CDCSS_BW_DISABLE |
+                BK4819_REG_51_AUTO_CTCSS_BW_DISABLE);
+#endif
+
 #ifndef ENABLE_FEAT_F4HWN
             if (gRxVfo->SCRAMBLING_TYPE > 0 && gSetting_ScrambleEnable)
                 BK4819_EnableScramble(gRxVfo->SCRAMBLING_TYPE - 1);

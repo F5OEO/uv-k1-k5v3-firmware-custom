@@ -1615,6 +1615,21 @@ BK4819_CssScanResult_t BK4819_GetCxCSSScanResult(uint32_t *pCdcssFreq, uint16_t 
     return BK4819_CSS_RESULT_NOT_FOUND;
 }
 
+#ifdef ENABLE_CTCSS_REVERSE
+// Measured CTCSS frequency in Hz * 10, or 0 when the chip has no valid measurement.
+// Same register and conversion BK4819_GetCxCSSScanResult() uses. REG_68<15> set means
+// the scan is still busy, i.e. there is nothing to read yet.
+uint16_t BK4819_GetCTCSSFreq10Hz(void)
+{
+    const uint16_t reg = BK4819_ReadRegister(BK4819_REG_68);
+
+    if (reg & 0x8000)
+        return 0;
+
+    return ((reg & 0x1FFF) * 4843) / 10000;
+}
+#endif
+
 void BK4819_SetFrequencyScan(bool enable)
 {
     // REG_32

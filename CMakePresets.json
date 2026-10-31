@@ -43,6 +43,8 @@
                 "ENABLE_WIDE_RX": true,
                 "ENABLE_F_CAL_MENU": false,
                 "ENABLE_CTCSS_TAIL_PHASE_SHIFT": false,
+                "ENABLE_CTCSS_REVERSE": false,
+                "ENABLE_CTCSS_REVERSE_MEASMODE": true,
                 "ENABLE_BOOT_BEEPS": false,
                 "ENABLE_SHOW_CHARGE_LEVEL": false,
                 "ENABLE_REVERSE_BAT_SYMBOL": false,

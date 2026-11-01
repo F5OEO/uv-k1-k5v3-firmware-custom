@@ -239,9 +239,12 @@ GPIO4 (VHF LNA), GPIO5 (red LED) and GPIO6 (green LED) via `REG_33`
 ## 5. Open questions and experiments
 
 1. **What is the BK4829's internal AF sample rate?** This sets the ceiling for
-   every current and future capture app. Method: BYP mode, squelch open on
+   every current and future capture app, and it bounds everything else - run
+   it first (ordering argument in §7.5). Method: BYP mode, squelch open on
    noise, fastest capture available, then look for the AF DAC's roll-off or
-   reconstruction images in the spectrum.
+   reconstruction images in the spectrum. For scale, the factory voice DAC
+   runs at exactly 8 kHz (§6.3); if the receive side is the same order, it
+   caps symbol rates well below what the IF filter would allow.
 2. **Where is the ~1 kHz high-pass?** `App/apps/aisrx/aisrx_app.c:454` describes
    it making long bit runs droop. *Hypothesis:* it is formed at PA4 itself —
    15 kΩ of buffer-off DAC output impedance against a ~10 nF coupling cap gives
@@ -253,6 +256,24 @@ GPIO4 (VHF LNA), GPIO5 (red LED) and GPIO6 (green LED) via `REG_33`
    other direction (TIM6 → DMA1 ch3 → DAC, §6.3), which is encouraging.
 5. **What is the APB prescaler?** One live read of `RCC->CFGR` bits 12–14
    decides whether the ADC ceiling is ~222 ksps or ~111 ksps (§2.4).
+6. **Does REG_43 `<5:4> = 11` widen the IF filter?** The one unexplored margin
+   on receive bandwidth. Protocol in §7.4.
+7. **Is the 48 MHz system clock HSI or crystal-derived?** Decides whether
+   on-board timekeeping is good enough for the Doppler options 2 and 3 in §8.3.
+   One read of `RCC->CR`/`CFGR` settles it.
+8. **Does a sub-kHz retune re-lock without the REG_30 toggle, and is the toggle
+   audible?** Bounds how smooth any Doppler correction can be (§8.4).
+9. **What does one BK4819 register read actually cost, and how often does RSSI
+   really update?** **Answered on the sibling BK4819 radio - see §9.6 - and the
+   answer kills route 1 there.** RSSI is low-passed with a 2.3-3.8 ms time
+   constant (autocorrelation on noise, confirmed at +30 dB SNR), so a 625 µs
+   bit cell survives in it at 0.04 dB; and the read cost was 4.4x the figure
+   counted from the source. Both still have to be re-measured *here*, the
+   BK4829 being a different die behind a different MCU: time 1000 reads of
+   REG_67 with `cycles_48mhz` (`App/apps/app_api.h:335`) for the bus cost, then
+   take the autocorrelation of a block of back-to-back reads on noise rather
+   than counting identical runs - run length conflates the register's response
+   with the quantisation, the ACF does not.
 
 ---
 
@@ -508,6 +529,550 @@ of `App/main.c`'s `for (i = 0; i < ARRAY_SIZE(gBatteryVoltages); i++)
 BOARD_ADC_GetBatteryInfo(&gBatteryVoltages[i], &gBatteryCurrent);` - before
 branching on two flags the way `BOOT_GetMode()` does.
 
+## 7. Receive bandwidth: the ceiling, and how to measure it
+
+Separate axis from §2 (which is about getting *samples* into the MCU). This is
+about how much *spectrum* the BK4829 will pass before the samples are taken.
+It decides whether any wideband digital mode is receivable at all.
+
+### 7.1 The documented ceiling is already in use
+
+`BK4819_SetFilterBandwidth` (`App/driver/bk4829.c:636-726`) decodes REG_43:
+bits `<14:12>` set the RF filter from 2.0 to 5.5 kHz, **doubled when `<5>` is
+set**, and `<5:4>` selects the channel mode (`00` 12.5k, `01` 6.25k,
+`10` 25k/20k).
+
+The firmware presets do not use the maximum; the data apps do:
+
+| source | REG_43 | resulting RF filter |
+|---|---|---|
+| preset `BW_WIDE` | `0x3028` | 3.5 kHz x2 = 7 kHz |
+| Spectrum3D (`spectrum3d/gen_assets.py:31`) | `0x3628` | 3.5 kHz x2 = 7 kHz |
+| **AIS RX, RS41** (`aisrx/gen_assets.py:52`) | `0x7E2C` | **5.5 kHz x2 = 11 kHz** |
+
+`aisrx/gen_assets.py:47` calls `0x7E2C` "the widest IF filter". So **11 kHz of
+baseband (~22 kHz RF) is the ceiling of the documented field**, and an app
+already sits on it.
+
+### 7.2 The audio filters are *not* the limit
+
+Worth knowing, because it is counter-intuitive. REG_2B is documented at
+`bk4829.c:1179-1186`:
+
+```
+bit10: Disable AF Rx HPF300
+bit 9: Disable AF Rx LPF3K
+bit 8: Disable AF Rx de-emphasis
+```
+
+The data apps write `REG_2B |= 0x0700`, switching all three off; the AFC goes
+too (REG_73 bit 4). Without that the path would be capped at 3 kHz. This is
+why AIS can decode 9600 baud. The AF chain is therefore not the wall - the IF
+filter is.
+
+### 7.3 The only unexplored margins
+
+- **REG_43 `<5:4> = 11`.** The driver table lists only `00`, `01` and `10`.
+  Since `<5>` is also the x2 doubler, `11` might be a wider mode, or invalid.
+  One register write settles it.
+- **REG_43 `<3>` and `<1:0>`**, marked "remain undocumented here"
+  (`bk4829.c:681`).
+
+Against this, the datasheet (BK4829 SS1.1) advertises channel spacings of
+12.5 / 25 / 6.25 / 20 kHz. 25 kHz is the design envelope of a low-IF receiver
+whose channel filter, sigma-delta ADC and decimator are all sized for it, so
+the prior against a hidden wider mode is strong.
+
+### 7.4 Measuring the real IF response
+
+Doable without reflashing, and it replaces all conjecture:
+
+1. Build with `ENABLE_UART_RW_BK_REGS`, which adds UART commands `0x0601`
+   (read) and `0x0602` (write) for any BK4819 register (`App/app/uart.c:692`).
+2. Inject a carrier from a signal generator or a second radio and sweep its
+   offset +/- 30 kHz around the tuned frequency.
+3. Watch the demodulated level in the **AF Spectro** app.
+4. Repeat for `REG_43 = 0x7E2C`, then `0x7E3C` (`<5:4> = 11`).
+
+That yields the actual IF response curve, and a definitive answer on mode `11`.
+
+### 7.5 Consequence for wideband protocols, and the right order
+
+Worked through for FLARM and ADS-L (both 868 MHz, both inside the chip's
+760-1160 MHz range and the firmware's 840-1300 MHz band 2,
+`App/frequencies.c:28` - so frequency is not the obstacle):
+
+| | occupied BW | symbol rate |
+|---|---|---|
+| FLARM | ~250 kHz (±50 kHz dev) | ~100 kbit/s |
+| ADS-L M-band | ~250 kHz (±50 kHz dev) | 100 kbit/s, Manchester |
+| **ADS-L O-band** (869.525 MHz) | **~40-60 kHz** (±10 kHz dev, GFSK BT 0.5) | **38.4 kbit/s** |
+| available here | ~22 kHz RF | 1.2 kbit/s via the chip's FSK modem |
+
+FLARM is out by a factor of 10 to 25. ADS-L O-band is out by only 2 to 3 -
+close enough that §7.3's untested mode matters. Note also that ADS-L is an
+open EASA specification, so unlike FLARM there is no legal obstacle to
+decoding it.
+
+**But winning the bandwidth argument would not be enough**, and this sets the
+order of work: even with a 44 kHz RF filter, 38.4 kbit/s has to cross an AF
+path whose internal rate is unmeasured and may be ~8-16 kHz (§6.3: the factory
+voice DAC runs at 8 kHz), while the chip's own FSK modem tops out at 1.2 kbit/s
+(`bk4829.c:1135-1143`). **Measure the internal AF rate (open question 1) before
+spending any effort on the IF filter** - it bounds everything downstream.
+
+
+### 7.6 Second worked example: io-homecontrol (Somfy / VELUX)
+
+The protocol behind Somfy, VELUX and SIMU shutters, awnings, pergola motors and
+remotes - and behind the ESPHome component `laberning/home_io_control`, whose
+device matrix lists about twenty confirmed devices, with as many again
+reported, partial or listen-only. Same exercise as §7.5.
+
+| | value |
+|---|---|
+| channels | 868.25 / 868.95 / 869.85 MHz |
+| modulation | 2-FSK, NRZ, UART-framed bytes (start / 8 LSB-first / stop) |
+| symbol rate | **38.4 kbit/s** |
+| deviation | ±19.2 kHz |
+| occupied BW | **~77 kHz** (Carson: 2 x (19.2 + 19.2)) |
+| frame | 11-32 B: 2 control bytes, 3 B dest + 3 B source node ID, command, data, rolling code, 6-byte truncated AES-128 MAC, CRC-16/KERMIT |
+| available here | ~22 kHz RF, 1.2 kbit/s via the chip's FSK modem |
+
+Frequency is again not the obstacle - 868 MHz sits in band 2
+(`App/frequencies.c:28`). The verdict:
+
+- **TX is the decisive one, and it settles the device matrix.** Operating a
+  device means transmitting, and the 2-way devices expect an ACK from the
+  controller as well. The PA and output LPF here are 2 m / 70 cm, and 868 MHz is
+  a non-amateur SRD band with listen-before-talk and duty-cycle limits
+  (EN 300220, as the protocol's own link-layer notes state). Nothing in §7.3 or
+  open question 1 changes that: **control is out, categorically.**
+- **Bandwidth**, for receive: the two tones sit at ±19.2 kHz, entirely outside
+  today's ±11 kHz baseband filter - about 3.5x short on occupied bandwidth.
+  Even if §7.3's untested REG_43 mode `11` doubled the filter, it would still be
+  ~1.75x short. Unlikely to close it, but untested.
+- **Symbol rate**, for receive: the chip's own FSK modem tops out at 1.2 kbit/s
+  (`bk4829.c:1135-1143`), so hardware framing is out - but that is not the
+  fallback that matters. Software demodulation from the discriminator tap is
+  exactly how the AIS app reads 9600 bit/s GMSK (§7.2,
+  `App/apps/aisrx/aisrx_app.c:18`). Receiving io-homecontrol is therefore the
+  same open case as ADS-L O-band, at the same 38.4 kbit/s, and bounded by the
+  same unmeasured internal AF rate (open question 1) - just with 2x the
+  deviation to pass.
+- **Not the obstacles**: AES-128 and a 6-byte truncated MAC are cheap on the
+  M0+; the per-device `system_key` has to be extracted from a vendor remote or
+  hub (TaHoma, KLR 200/300), which is a procedure, not a resource limit.
+
+So the two halves part company. **Receiving** is the ADS-L O-band question with
+a wider deviation: blocked today by the IF filter, and worth revisiting only
+after open question 1. **Controlling anything in that device matrix** needs a
+transmitter this radio does not have and may not legally be - which leaves an
+external SX1262 / CC1101, at which point the ESP32 host of the upstream project
+is the simpler build.
+
+The PHY figures above are community reverse engineering
+(`Velocet/iown-homecontrol`); the official specification is restricted to
+io-homecontrol alliance members.
+
+
+## 8. Tuning resolution, and Doppler correction
+
+A third axis, independent of §2 (getting samples in) and §7 (how much spectrum
+gets through): how *finely* the receiver can be placed. This one comes out in
+favour of the hardware.
+
+### 8.1 The step is 10 Hz
+
+`BK4819_SetFrequency` (`App/driver/bk4829.c:754`) writes the frequency into
+REG_38 (low 16 bits) and REG_39 (high 16 bits) in **units of 10 Hz** - the
+register's own unit, and the unit every frequency in the firmware is stored in (hence `BX4819_band2_upper = 130000000` for 1300 MHz,
+`App/frequencies.c:25`). The UI exposes the same floor: `gStepFrequencyTable`
+(`App/frequencies.c:66`) starts at `STEP_0_01kHz = 1`, i.e. 10 Hz, and runs up
+to 500 kHz.
+
+10 Hz is a programming granularity, not an accuracy. A few ppm of
+reference-crystal error is a fixed offset of a much larger order - 3 ppm is
+1.3 kHz at 435 MHz - so the fine step is only worth having together with a
+calibration offset.
+
+### 8.2 Doppler fits inside it with room to spare
+
+| band | Doppler at LEO | peak rate near TCA |
+|---|---|---|
+| 145 MHz | ±3.5 kHz | ~30 Hz/s |
+| 435 MHz | ±10 kHz | ~100-150 Hz/s |
+
+(overhead pass, ~800 km; an ISS-altitude pass is roughly twice those rates)
+
+10 Hz at 435 MHz is 0.023 ppm, two to three orders finer than needed. Holding an
+FM downlink inside ±300 Hz means one retune every 2-5 s at the worst point of a
+pass. Resolution is not the limit; the time source and the orbit propagator are.
+
+### 8.3 Three implementations, by increasing cost
+
+1. **Host-driven.** The PC or phone runs SGP4 and the radio only obeys, so
+   neither the MCU clock nor on-board TLEs matter. The primitive already exists:
+   `CMD_0602_WriteBK4819Reg` (`App/app/uart.c:717`) writes any BK4819 register,
+   and the dispatcher is port-agnostic, so it works over USB CDC
+   (`UART_PORT_VCP`) as well as the K-plug UART. Two caveats:
+   - `ENABLE_UART_RW_BK_REGS` is `false` in the `default` preset and no edition
+     overrides it (`CMakePresets.json:103`), so this is a build-it-yourself
+     path, and by the preset file's own policy an unsupported one. It is the
+     same flag §7.4 needs.
+   - Poking REG_38/39 does not hold. `RADIO_SetupRegisters`
+     (`App/radio.c:792`, the write at `:855`) retunes from
+     `gRxVfo->pRX->Frequency`, and `RADIO_SetTxParametersEx` (`:1048`, write at
+     `:1077`) from `gCurrentVfo->pTX->Frequency`. `RADIO_SetupRegisters` has
+     some twenty call sites - key actions (`App/app/action.c:204,224,602`), scan
+     steps (`App/app/chFrScanner.c:960,1011,1164`), end of transmit
+     (`App/apps/app_overlay.c:890`), app launch and exit, and the main loop
+     (`App/app/app.c:731,1180,1613`) - so anything that calls it overwrites the
+     correction; and a bare write skips the REG_30 off/on
+     toggle that `SetF` (`App/app/spectrum.c:445`) uses to re-lock the PLL, so
+     the host would have to send 38, 39, then REG_30 = 0 and REG_30 = value.
+     Good enough for an RX-only experiment.
+
+   The clean version is a dedicated command that writes the **VFO** frequency
+   and calls the existing retune, so TX picks up the corrected uplink too -
+   which is what FM satellites need, being split V/U.
+2. **Precomputed Doppler curve.** A list of (t, delta-f) points for one pass,
+   played back from a keypress at AOS. No SGP4, no TLEs, no time entry, and the
+   overlay API already has what it needs: `bk_read`/`bk_write` for REG_38/39 and
+   REG_30, `rx_freq`/`tx_freq` for the uncorrected centre, and `ticks_ms` for
+   the timebase (`App/apps/app_api.h:193-201, 261`). The catch is delivery: app
+   assets are **read-only** (`asset_read`, same file), so a table shipped that
+   way means repacking and reflashing the app for every pass. A handful of
+   polynomial coefficients entered on the keypad, or computed from an AOS/LOS
+   and a TCA offset, avoids that and costs less than 3840 B of assets.
+3. **On-board SGP4.** Does not fit the 4 KiB overlay budget, and soft-float
+   double on an M0+ costs real resident flash - plus it needs TLE and clock
+   entry. The most work for the least gain.
+
+### 8.4 What has to be settled on hardware
+
+- **Clock source**, for options 2 and 3 only: `APP_SystemClockConfig`
+  (`Core/Src/main.c:68`) just calls `LL_SetSystemCoreClock(48000000)` under the
+  comment "Bootloader has setup clock for us". §6.3's TIM6 arithmetic pins the
+  *rate* at 48 MHz but says nothing about the source, and there is no RTC and no
+  clock feature anywhere in the firmware.
+- **Whether a small retune re-locks cleanly**, i.e. whether the REG_30 toggle is
+  needed for a sub-kHz step and whether it mutes or clicks. Hence the threshold
+  approach above rather than continuous retuning.
+- **Reference calibration**, per §8.1 - without it the correction lands on a
+  fixed error larger than itself.
+
+
+## 9. OOK: the case that fits
+
+Worth stating after §7.5 and §7.6, because it is the counter-example. On-off
+keying - 433 MHz remotes, doorbells, weather stations, and keyed-carrier Morse -
+sits inside the limits that ruled out §7.5 and §7.6, and one app already does it.
+
+### 9.1 A keyed carrier is already received on hardware: `sigfind`
+
+**`App/apps/sigfind/sweep.c` is the precedent that matters.** Its ELT detector
+samples PA4 at **9.6 kHz**, paced by `cycles_48mhz` (`CYC_PER_SAMPLE = 5000`) in
+50 ms windows through `af_capture_open/sample/close`
+(`sigfind_app.c:478-493`, `:514`), and per sample it does exactly what an OOK front end
+does: DC removal (IIR, ~24 Hz corner), an **amplitude envelope tracker**, then a
+**Schmitt trigger whose hysteresis follows that envelope** (env/4, floor 6 ADC
+LSB) counting the transitions.
+
+What makes it decisive is how it was validated. Its README marks "detector on
+the radio with the Flipper Zero files" **Done (v1.7)**, and those files
+(`test/flipper_homer.py`, `test/flipper/*.sub`) are Flipper Sub-GHz RAW in
+preset `FuriHalSubGhzPresetOok650Async` - **a keyed carrier, i.e. OOK**, received
+in **AM on 433.650 MHz**, because the Flipper's CC1101 cannot amplitude-modulate.
+At 50 % duty and a 1600 Hz top tone, the on-pulses are **312 µs** - the pulse
+width of a cheap 433 MHz remote (EV1527 is ~350 µs). What that proves is bounded
+but real: edges 312 µs apart come through the AM-envelope chain cleanly enough
+for the Schmitt trigger to count them. It does **not** show that pulse *widths*
+can be classified - at 9.6 kHz such a pulse is only 3 samples, and `sweep.c` only
+counts transitions per 25 ms window to estimate a tone frequency. A remote
+decoder measures widths, so it wants a higher rate (§2.3 reaches 38.4 kHz).
+
+It comes with a host test bench whose **channel model** an OOK decoder can reuse
+unchanged, swapping only the detector: `test/sweep_test.c` `run_sub()` reads a
+Flipper `.sub` and pushes it through a model of the AM demodulator (envelope,
+3 kHz audio low-pass), the PA4 high-pass, noise and the ADC, "sampled as the app
+does" (`:92-94`). `.sub` RAW is also the format a captured remote is stored in.
+
+The second precedent is **`cwdecode`**, which is route 1 rather than route 2:
+`App/apps/cwdecode/cwdecode_app.c:18-22` decodes keyed-carrier Morse by
+**following the RSSI envelope**, since the BK4829 cannot demodulate CW into a
+sidetone - median of 3 samples, adaptive noise floor, hysteresis (`sample()` at
+`:377`). It leaves the AGC as a user setting defaulting to **on** (`:214`,
+`:665`), which is survivable at its rate but not at OOK rates (§9.4). That rate
+is `SAMPLE_MS = 10` (`:30`), i.e. **100 Hz** - right for Morse at 20 WPM (60 ms
+dot), 100 to 200x too slow for a remote. In both apps the algorithm transfers;
+only the rate is the work.
+
+### 9.2 Why OOK clears the bars that §7.6 did not
+
+- **Frequency**: 433.92 MHz is in band 6, 400-470 MHz (`App/frequencies.c:45`) -
+  the native band, with front end, LNA and antenna all designed for it. Not
+  band 2.
+- **Bandwidth**: OOK at 1-4 kbit/s is narrow and fits the ~11 kHz baseband /
+  ~22 kHz RF ceiling of §7.1 with room to spare. There is no ±19.2 kHz tone pair
+  to pass.
+- **Rate**: a few hundred microseconds per symbol, i.e. 1-4 kbit/s. The real
+  ceiling is the BK4829's internal AF rate, not the MCU's 38.4 kHz sampling
+  (§2.4, open question 1) - but even if that rate is of the order of §6.3's
+  8 kHz, it still clears 1-4 kbit/s OOK by about an order of magnitude. This is
+  the one protocol in this document that does not hang on open question 1.
+
+### 9.3 Three routes
+
+Routes 1 and 2 are both CPU-bound polling loops, so an app picks one.
+
+1. **RSSI polling** - `cwdecode`'s route (§9.1), sped up. `rssi_dbm()`
+   (`App/apps/app_api.h:192`) or `bk_read(0x67)` reaches REG_67
+   (`App/driver/bk4829.c:1550`) over the bit-banged 3-wire bus. Cost per read is
+   **~40-50 µs, estimated from the bit-bang source and unmeasured** (24 clocked
+   bits, each half-period a 40-nop `SHORT_DELAY()` at 48 MHz: `bk4829.c:42`,
+   `:204`, `:229`). That caps polling near 20 kHz with the CPU
+   doing nothing else, so ~10 kHz in practice: 3 to 7 points on a 350 µs pulse -
+   enough to classify pulse widths, tight for precise edge timing. Its real
+   advantage is being DC-coupled, hence immune to the ~1 kHz coupling of open
+   question 2.
+   **Measured on the BK4819 this route is dead, and not for the reason above:
+   the RSSI register is low-passed over 2.3-3.8 ms, so the sample rate is
+   irrelevant (§9.6). Both the cost estimate and the rate argument here are
+   superseded; read §9.6 before building on this route.**
+2. **AM demodulator + AF capture** - `sigfind`'s route (§9.1), and the one with
+   hardware evidence behind it. The envelope leaves on PA4 and rides the capture
+   path that already runs at 9.6 / 19.2 / 38.4 kHz (§2.3): faster than route 1,
+   and 312 µs on-pulses already come through cleanly at the low end of that
+   range (§9.1), with 19.2 or 38.4 kHz available when widths must be measured.
+
+   **How AM is actually enabled** - worth getting right, because the AM
+   demodulator is not what the AF mode selects. `RADIO_SetModulation` turns it on
+   by setting **bit 0 of REG_31**, leaving the AF mode at `BK4819_AF_FM`, with
+   the comment "AM no longer needs special AF setting" (`App/radio.c:1157`,
+   `:1181`); that is why `sigfind` detects AM by reading
+   `bk_read(BK_REG_31) & 1` (`:509`). An overlay app therefore **requires the
+   user to be on an AM channel** - which is exactly what both READMEs ask for -
+   and the AF mode on top is its own choice: `sigfind` leaves it at FM,
+   `acarsrx` selects `APP_AF_AM = 7` (`App/apps/app_api.h:480`,
+   `App/apps/acarsrx/acarsrx_app.c:613`) and decodes 2400 bps AM-MSK from PA4 at
+   19.2 kHz. Both combinations are proven; AF mode 7 on an *FM* channel is not
+   tested.
+
+   **What §9.1 settles, and it is more than it looks**: `sigfind` writes neither
+   `REG_43` nor `REG_2B` and still slices a keyed carrier. The filter it inherits
+   is whatever the channel's bandwidth gives, and `RADIO_GetAMFilterBandwidth`
+   (`App/radio.c:787-790`) maps **W** to `BK4819_FILTER_BW_WIDE` (`0x3028`,
+   3.5 kHz doubled to 7 kHz RF) and **N** to the stock AM preset
+   `BK4819_FILTER_BW_AM` (`0x345C`, 3.5 kHz in 6.25k mode) -
+   `bk4829.c:686-718`. `0x3028` has `<5:4> = 10`, the **25k/20k channel mode**,
+   and the comment at `radio.c:788` says reusing it for AM "wide" is
+   intentional. So AM in 25k mode is shipped behaviour, not a question, and a
+   widening to 7 kHz is already one user setting away.
+
+   **What is still untested** is only the rest of the way to §7.1's ceiling.
+   Against `0x3028`, the AIS value `0x7E2C` (11 kHz) differs in the RF filter
+   field `<14:12>`, the weak-RF field `<11:9>` and bit 2; `REG_2B |= 0x0700`
+   (`App/apps/aisrx/gen_assets.py:52`, §7.2) is a second untested step, since
+   both come from an FM app. That is what would keep pulse edges sharp and give a
+   drifting transmitter somewhere to sit. One look with AF Scope on a keyed
+   carrier settles it; until then the known-good configuration is the resident AM
+   one, N or W, with W giving the 7 kHz filter. The validation in §9.1 records
+   only "AM on 433.650 MHz", not which of the two.
+3. **Comparator + timer input capture** (§2.5). PA4 also carries COMP1_INP8, so
+   a 1-bit slicer feeding input capture yields edge timestamps with no sampling
+   CPU at all - the textbook OOK front end. It is not in `app_api.h` though, so
+   it needs direct COMP/TIM register access: an optimisation, not the first
+   thing to try.
+
+### 9.4 The real obstacles
+
+- **Freeze the gain** - unlike `cwdecode`, which defaults to AGC on because its
+  symbols are 60 ms long. Use `set_agc(false)` as
+  `App/apps/sigfind/sigfind_app.c:230` and `App/apps/foxhunt/foxhunt_app.c:150`
+  do. Otherwise the AGC lifts the gain through each silence and noise reads as a
+  mark. Clipping on strong signals is
+  harmless for a binary decision; the actual difficulty is choosing a fixed gain
+  high enough for weak transmitters.
+- **Carrier offset is the field problem**, more than demodulation. Cheap
+  SAW-based remotes often sit tens of kHz off nominal - more than the filter is
+  wide. The workflow is therefore: find the carrier in the spectrum analyser,
+  then tune to it.
+- **The ~1 kHz coupling at PA4** (open question 2, still unverified) makes long
+  marks droop on route 2. Decode edges, not levels. Route 1 does not have the
+  problem. Note that §9.1's evidence does **not** cover this: a homer is a
+  balanced 50 % square wave, whereas a remote frame has long gaps and a sync
+  gap. `sweep.c`'s own remark that the PA4 coupling is "close to a
+  differentiator" supports the hypothesis without measuring it.
+
+Transmitting or replaying OOK is a separate question, not analysed here.
+
+
+### 9.5 Worked example: LaCrosse TX141 / TX141TH
+
+A concrete target for §9.3 route 2, and a reminder to take the PHY from a
+decoder that works: the timing tables circulating for this family do not all
+agree, so the figures below are `rtl_433`'s, from the single `r_device` that
+covers TX141-Bv2, TX141TH-Bv2/Bv3, TX141W and TX145wsdth
+(`src/devices/lacrosse_tx141x.c:317-324` and its header comment).
+
+| | value |
+|---|---|
+| carrier | 433.92 MHz, OOK |
+| modulation | `OOK_PULSE_PWM`, **fixed 625 µs period** per bit |
+| bit 0 | 208 µs high + 417 µs low (`short_width`) |
+| bit 1 | 417 µs high + 208 µs low (`long_width`) |
+| preamble | 833 µs high + 833 µs low, 4 times (`sync_width`) |
+| limits | `gap_limit` 625 µs, `reset_limit` 1700 µs |
+| burst | 12 identical packets back to back, every 50 s (4 on TX141-Bv3) |
+
+**Sampling rate.** The discriminant is the high pulse: 208 against 417 µs, so a
+threshold near 310 µs with ±104 µs of margin.
+
+| rate | step | 208 µs | 417 µs | width error |
+|---|---|---|---|---|
+| 9.6 kHz | 104 µs | 2 samples | 4 samples | ±104 µs - the whole margin |
+| 19.2 kHz | 52 µs | 4 | 8 | ±52 µs, workable |
+| **38.4 kHz** | **26 µs** | **8** | **16** | **±26 µs, comfortable** |
+
+So this one wants the top of §2.3's range, not `sigfind`'s 9.6 kHz. Route 1 is
+out here: at ~40-50 µs per RSSI read (§9.3) the sampling step alone eats the
+margin - subject to open question 9. And because the period is fixed, the robust
+decision is not an absolute threshold but the **high-to-period ratio inside each
+625 µs cell**, which self-calibrates and absorbs distortion.
+
+**What actually deforms the pulses** is the AF chain, not the quantisation. On
+the stock AM path REG_2B is untouched (§9.3), so the 3 kHz audio low-pass is in
+circuit and contributes edges of the order of 100 µs - substantial on a 208 µs
+pulse. If open question 2's ~1 kHz coupling holds (τ ≈ 160 µs), the 208 to 833 µs
+plateaus droop as well and the pulses arrive mostly as edges. Two consequences:
+
+- the slicer must be a **hysteresis comparator on the DC-removed signal**, i.e.
+  `sweep.c`'s `sw_push` (§9.1); a threshold against a DC mean would fail;
+- the right order of magnitude is already demonstrated: `acarsrx` decodes
+  2400 bit/s AM-MSK, ≈417 µs per bit - exactly this `long_width` - from PA4 at
+  19.2 kHz.
+
+The decisive check costs nothing: push these timings through `run_sub()`'s
+channel model (§9.1), which contains both the low-pass and the high-pass.
+
+**Frame**, as the driver states it: 40 bits for TX141TH-Bv2 (41 for Bv3, 37 for
+TX141, 32 for TX141B, 65 for TX141W), **bit-inverted** (`bitbuffer_invert`), in
+5 bytes - `id8`, `flags4` (battery low, test button, channel), `temp12` (scaled
+by 10, offset 500, -40 to +60 °C), `humi8`, `chk8`. The check is **not a CRC**
+but a keyed LFSR digest, `lfsr_digest8_reflect(data, 4, 0x31, 0xf4)` (`:139`);
+only TX141W uses a real CRC-8, poly 0x31 init 0x00 over 7 bytes. With 12 repeats
+per burst a majority vote is cheap, and one packet passing the digest is enough -
+which is what `rtl_433` itself relies on.
+
+All of this fits an overlay app without strain. The remaining obstacle is
+§9.4's: find the carrier on the spectrum first, the AM filter being 7 kHz at
+best (§9.3) - and cheap sensors do sit well off nominal: the three carriers
+found on air during the v1 work were at 433.843, 433.918 and 433.965 MHz
+(§9.6).
+
+**Build it on route 2.** Route 1 is not merely tight here, it is closed: on the
+sibling BK4819 radio the RSSI register is low-passed over 2.3-3.8 ms and a
+625 µs bit cell survives in it at 0.04 dB, measured against a transmitter 30 dB
+over the noise (§9.6). The PA4 AF tap is therefore the whole value of this
+radio for this target.
+
+
+### 9.6 Measured on the sibling radio: route 1 is closed, route 2 is the only one
+
+Everything in §9.3 ranked route 2 (AM envelope on PA4) above route 1 (RSSI
+polling) on grounds of rate alone. Route 1 is now **measured, on hardware, and
+it is not a rate problem at all** - the RSSI register itself is low-passed over
+milliseconds, which no sampling rate can undo.
+
+The measurement was taken on the **UV-K5 v1** (DP32G030 + **BK4819**), the one
+radio where route 1 is the *only* option, because it has no AF tap into the MCU
+at all: `BOARD_ADC_Init()` there wires only PA9/CH4 (battery volts) and
+PA14/CH9 (battery current), and nothing on the audio path. A debug feature
+(`ENABLE_RSSI_CAPTURE`, UART command 0x0603) was added to the F4HWN v1 fork for
+it: it freezes the front-end gain, times one register read, validates a fast
+bit-bang reader against the stock one, then captures 4096 consecutive reads
+into RAM with interrupts masked and dumps the block as text. Four on-air
+sessions, 2026-11-01, at 433.918 / 433.965 / 433.843 MHz.
+
+#### The method, which transfers to this radio unchanged
+
+- **Autocorrelation on noise is the input-independent probe.** Noise at the
+  antenna through a ~7 kHz channel decorrelates in ~140 µs, so whatever width
+  the register's output shows *is* the register's own response.
+- **A sine fit at the rate of interest quantifies what survives**, in dB, which
+  beats arguing about sample counts.
+
+#### What it found
+
+| register | role | ACF 1/e on noise |
+|---|---|---|
+| REG_67 | RSSI | **2.29 ms** and **3.81 ms**, two captures |
+| REG_65 | noise indicator | **3.39 ms** |
+| REG_63 | glitch indicator | **7.63 ms** |
+
+Confirmed against a transmitter 25-30 dB over the floor, with a 25.5 dB
+envelope swing inside the window and 0.5 dB resolution:
+
+| | result |
+|---|---|
+| ACF 1/e at +30 dB SNR | **3.71 ms** - identical to the noise figure |
+| ACF through 337-1011 µs | **strictly monotonic**, no 625 µs cell |
+| sine fit, 625 µs cell rate (800 Hz) | **0.04 dB** |
+| sine fit, 833 µs preamble pair (1200 Hz) | **0.01 dB** |
+| sine fit, 33 ms packet rate (30 Hz) | 0.49 dB |
+
+A TX141-family burst was positively identified on 433.918 MHz by an ACF maximum
+at **33.3-33.9 ms**, which is the packet length: 4 x 833 µs of preamble plus
+40 x 625 µs of data is 31.7 ms, plus the inter-packet gap. **The packet envelope passes the
+register and the keying inside it does not.** On a frequency where the keying
+was plainly audible in the speaker, REG_67 never rose more than 4.5 dB in 60 s
+of 100 %-duty monitoring and carried no structure at all.
+
+#### Also: the §5 question 9 bus estimate was wrong, and in an instructive way
+
+Counting the bit-bang source gave ~40-50 µs per read. On the v1, the
+delay-paced driver measured **220 µs**, and stripping every delay out left
+**83 µs** - a floor set by the GPIO read-modify-writes and by plain instruction
+throughput (its NOP-loop iterations cost ~26 cycles, so flash wait states with
+no prefetch dominate), not by the deliberate pacing. **Counting instructions
+underestimated the real cost by 4.4x.** Expect the same on the PY32F071: time
+it with `cycles_48mhz()` before planning anything around it.
+
+#### What this does and does not say about the BK4829
+
+- **Does not prove** anything about this chip. The BK4829 is a different die,
+  behind a different MCU and a different board. The RSSI smoothing has to be
+  re-measured here.
+- **Is a strong prior**, same vendor and the same register layout. Note also
+  that `cwdecode` is entirely consistent with ms-scale smoothing: it samples
+  RSSI at 100 Hz for 60 ms dots (§9.1), so it would work unchanged with a 3 ms
+  low-pass in the way.
+- **Says nothing about route 2.** The PA4 AF tap is a different signal path and
+  is untouched by this result.
+
+#### Consequence for §9.5
+
+Treat **route 1 as closed** for TX141 unless a measurement on the BK4829 says
+otherwise, and build the LaCrosse app on **route 2**, the AM envelope captured
+on PA4 at 19.2 or 38.4 kHz. That is the route this radio has and the v1 does
+not, which makes the K1 / K5 V3 the right platform for this target - and the
+reason the v1 would need a hardware mod (BK4819 AF output through a coupling cap
+into a SARADC pin) to get the same thing.
+
+#### Two measurements worth stealing
+
+1. **Re-run the noise ACF on REG_67 here**, via `bk_read(0x67)` in an overlay
+   app paced off `cycles_48mhz()`. Half an hour, and it either confirms route 1
+   is dead on this radio too or reopens it.
+2. **Run the same ACF and sine fit on the `af_capture` stream**, which answers
+   **open question 1** - the BK4829's internal AF sample rate, the number that
+   bounds every capture app in this tree. Capture noise at 38.4 kHz with the AF
+   filters bypassed (`REG_2B |= 0x0700`), and the ACF 1/e of that stream is the
+   reconstruction interval; a sine fit near 10-19 kHz shows where the roll-off
+   really is. The v1 work shows the technique separates "register is slow" from
+   "input is slow" cleanly, which is exactly what §2.4 could not settle by
+   argument.
 
 ## Appendix: reference data
 
@@ -551,6 +1116,18 @@ branching on two flags the way `BOOT_GetMode()` does.
   §5.3.16 DAC.
 - [armel/k1-teardown](https://github.com/armel/k1-teardown) — board photos,
   SWD pinout, OpenOCD recipes, decompiled factory firmware, flash dumps.
+- [Velocet/iown-homecontrol](https://github.com/Velocet/iown-homecontrol) —
+  reverse-engineered io-homecontrol PHY (`docs/radio.md`) and link layer
+  (`docs/linklayer.md`), used in §7.6.
+- [laberning/home_io_control](https://github.com/laberning/home_io_control) —
+  ESPHome io-homecontrol component; `docs/supported-devices.md` is the device
+  matrix referred to in §7.6.
+- [rtl_433 — `src/devices/lacrosse_tx141x.c`](https://github.com/merbanan/rtl_433/blob/master/src/devices/lacrosse_tx141x.c)
+  — the LaCrosse TX141 family PHY and frame layout used in §9.5.
+- `uv-k5-firmware-custom` (the F4HWN v1 fork, sibling repository):
+  `app/rssi_capture.c` and `utils/rssi_capture/` - the `ENABLE_RSSI_CAPTURE`
+  bench instrument, its host tool and the full record of the four on-air
+  sessions whose results are in §9.6.
 - This repository: `App/board.c`, `App/apps/app_overlay.c`, `App/apps/app_api.h`,
   `App/driver/bk4829.c`, `App/driver/bk4819.h`, `App/apps/aisrx/`.
 - `doc/ghidra/` — the Ghidra 12.2 decompilation of the factory firmware

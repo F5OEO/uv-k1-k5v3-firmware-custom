@@ -3,17 +3,12 @@
 
 Attention, ce firmware ne marche pas sur les ancien model uvk5 : Soyez sur que c'est une version 3.
 
-## Flasher le firmware avec UV Studio
-
-Vous pouvez flasher les UV-K5 V3 et UV-K1 directement depuis votre navigateur web en utilisant l'outil [UV Studio](https://armel.github.io/uvstudio/), basé sur Web Serial.
-
-UV Studio regroupe le flashage de firmware, la sauvegarde de l'étalonnage (calibration), la gestion du logo de démarrage, K5Viewer et le journal RF au sein d'une interface unique. Il ne nécessite aucune installation d'application, ni serveur ou compte. Utilisez un navigateur de bureau compatible Web Serial, tel que Chrome, Brave, Edge, Opera ou Firefox 151+.
-
 ## Étapes pour flasher le firmware
 
 - Connectez votre radio à votre ordinateur à l'aide d'un câble de programmation USB compatible (USB-C ou câble USB double jack de type Baofeng/Kenwood).
 - Assurez-vous que votre radio est en **mode DFU (mode flash)** : quand vous l'allumez, appuyez sur PTT en meme temps. Dans ce mode, la lumière s'allume et l'écran n'affiche rien.
 - Télécharger le fichier https://github.com/F5OEO/uv-k1-k5v3-firmware-custom/releases/download/latest/f5oeo.ffvl.bin
+- Utilisez un navigateur de bureau compatible Web Serial, tel que Chrome, Brave, Edge, Opera ou Firefox 151+.
 - Ouvrez la vue [Flash Firmware](https://armel.github.io/uvstudio/#flash) dans UV Studio.
 - Selectionnez "Choisir fichier ou choose file" et pointez sur le fichier f5oeo.ffvl.bin que vous venez de télécharger
 - Cliquez sur `Flash Firmware`, puis sélectionnez le port série associé à votre radio.

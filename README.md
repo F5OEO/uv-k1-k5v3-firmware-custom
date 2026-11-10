@@ -12,10 +12,10 @@ UV Studio regroupe le flashage de firmware, la sauvegarde de l'étalonnage (cali
 ## Étapes pour flasher le firmware
 
 - Connectez votre radio à votre ordinateur à l'aide d'un câble de programmation USB compatible (USB-C ou câble USB double jack de type Baofeng/Kenwood).
-- Assurez-vous que votre radio est en **mode DFU (mode flash)** : quand vous l'allumer, appuyer sur PTT en meme temps. Dans ce mode, la lumière s'allume et l'écran n'affiche rien.
+- Assurez-vous que votre radio est en **mode DFU (mode flash)** : quand vous l'allumez, appuyez sur PTT en meme temps. Dans ce mode, la lumière s'allume et l'écran n'affiche rien.
 - Télécharger le fichier https://github.com/F5OEO/uv-k1-k5v3-firmware-custom/releases/download/latest/f5oeo.ffvl.bin
 - Ouvrez la vue [Flash Firmware](https://armel.github.io/uvstudio/#flash) dans UV Studio.
-- Selectionnez "Choisir fichier ou choose file" et pointer sur le fichier f5oeo.ffvl.bin que vous venez de télécharger
+- Selectionnez "Choisir fichier ou choose file" et pointez sur le fichier f5oeo.ffvl.bin que vous venez de télécharger
 - Cliquez sur `Flash Firmware`, puis sélectionnez le port série associé à votre radio.
 - La barre de progression vous guidera tout au long des étapes de flashage. La lumiere soit clignoter pendant l'étape de flashage.
 

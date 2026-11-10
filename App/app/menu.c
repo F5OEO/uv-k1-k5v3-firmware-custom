@@ -265,6 +265,13 @@ int MENU_GetLimits(uint8_t menu_id, int32_t *pMin, int32_t *pMax)
             *pMax = 9;
             break;
 
+#if defined(ENABLE_FEAT_F4HWN) && defined(ENABLE_CTCSS_REVERSE)
+        case MENU_BAL_MTO:
+            //*pMin = 0;
+            *pMax = ARRAY_SIZE(gSubMenu_OFF_ON) - 1;
+            break;
+#endif
+
         case MENU_STEP:
             //*pMin = 0;
             *pMax = STEP_N_ELEM - 1;
@@ -570,6 +577,15 @@ void MENU_AcceptSetting(void)
                 gSquelchLevelOriginal = 10;
             #endif
             break;
+
+#if defined(ENABLE_FEAT_F4HWN) && defined(ENABLE_CTCSS_REVERSE)
+        case MENU_BAL_MTO:
+            gSetting_bal_mto = gSubMenuSelection;
+            // REG_51 is only written from RADIO_SetupRegisters(), so rewrite it
+            // now instead of waiting for the next channel change, as SetNFM does.
+            RADIO_SetupRegisters(true);
+            break;
+#endif
 
         case MENU_STEP:
             gTxVfo->STEP_SETTING = FREQUENCY_GetStepIdxFromSortedIdx(gSubMenuSelection);
@@ -1020,6 +1036,12 @@ void MENU_ShowCurrentSetting(void)
         case MENU_SQL:
             gSubMenuSelection = gEeprom.SQUELCH_LEVEL;
             break;
+
+#if defined(ENABLE_FEAT_F4HWN) && defined(ENABLE_CTCSS_REVERSE)
+        case MENU_BAL_MTO:
+            gSubMenuSelection = gSetting_bal_mto;
+            break;
+#endif
 
         case MENU_VOL:
             // SysInf is paginated; always start on page 0 (identity).

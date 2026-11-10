@@ -410,6 +410,24 @@ static void RevTone_Reset(void)
     revToneMuted       = false;
 }
 
+// Where the feature applies. Everything below has to agree, because outside
+// these conditions the measurement this depends on is either absent or harmful:
+//
+//  - BalMto off: the whole thing is dormant. revToneDecided is false while
+//    nothing polls, so without this test HandleIncoming would never open.
+//  - AM: RADIO_SetupRegisters() skips the CTCSS block entirely, REG_68 reports
+//    nothing, and the only effect would be the 100 ms settle delay.
+//  - A channel with RxCTCS or RxDCS set: MEASMODE replaces the compare setup,
+//    which stops the chip raising CTCSS/CDCSS found and lost - the interrupts
+//    HandleIncoming waits on - so such a channel would never open at all.
+static bool RevTone_Active(void)
+{
+    return gSetting_bal_mto
+        && gRxVfo != NULL
+        && gRxVfo->Modulation == MODULATION_FM
+        && gRxVfo->pRX->CodeType == CODE_TYPE_OFF;
+}
+
 // every 10ms while the squelch is open
 static void RevTone_Poll(void)
 {
@@ -594,7 +612,7 @@ static void HandleIncoming(void)
 #endif
 
 #ifdef ENABLE_CTCSS_REVERSE
-    if (revToneMuted || !revToneDecided)
+    if (RevTone_Active() && (revToneMuted || !revToneDecided))
         return;   // tone inside the blocked range, or still measuring
 #endif
 
@@ -1962,7 +1980,7 @@ void APP_TimeSlice10ms(void)
     UI_MAIN_TimeSlice10ms();   // scan-list name hold countdown (10 ms resolution)
 
 #ifdef ENABLE_CTCSS_REVERSE
-    if (!g_SquelchLost)
+    if (!g_SquelchLost || !RevTone_Active())
         RevTone_Reset();
     else if (FUNCTION_IsRx())
     {

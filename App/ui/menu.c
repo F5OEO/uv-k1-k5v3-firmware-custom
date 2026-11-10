@@ -151,6 +151,9 @@ const t_menu_item MenuList[] =
     {"SetRxA",      MENU_SET_AUD       },
 #endif
     {"SetTmr",      MENU_SET_TMR       },
+#ifdef ENABLE_CTCSS_REVERSE
+    {"BalMto",      MENU_BAL_MTO       }, // reverse tone squelch: mute on 67.0-94.8 Hz
+#endif
 #ifdef ENABLE_FEAT_F4HWN_SLEEP
     {"SetOff",       MENU_SET_OFF      },
 #endif
@@ -626,7 +629,11 @@ static const uint8_t CatAudio[]   = {
     MENU_SET_AUD,
 #endif
 };
-static const uint8_t CatRadio[]   = { MENU_SQL, MENU_STE, MENU_RP_STE, MENU_ROGER, MENU_VOX, MENU_TDR };
+static const uint8_t CatRadio[]   = { MENU_SQL,
+#ifdef ENABLE_CTCSS_REVERSE
+    MENU_BAL_MTO,
+#endif
+    MENU_STE, MENU_RP_STE, MENU_ROGER, MENU_VOX, MENU_TDR };
 static const uint8_t CatDtmf[]    = { MENU_UPCODE, MENU_DWCODE, MENU_D_ST, MENU_D_PRE, MENU_D_LIVE_DEC };
 static const uint8_t CatService[] = { MENU_F_LOCK, MENU_350EN, MENU_BATCAL, MENU_BATTYP, MENU_SET_NAV, MENU_RESET };
 
@@ -1237,6 +1244,9 @@ void UI_DisplayMenu(void)
 #endif
 #ifdef ENABLE_FEAT_F4HWN
         case MENU_SET_TMR:
+    #ifdef ENABLE_CTCSS_REVERSE
+        case MENU_BAL_MTO:
+    #endif
         case MENU_S_PRI:
 #endif
             choiceTable = gSubMenu_OFF_ON;

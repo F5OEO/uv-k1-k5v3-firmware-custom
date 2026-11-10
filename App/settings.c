@@ -525,6 +525,11 @@ gEeprom.FreqChannel[1]   = IS_FREQ_CHANNEL(Data16[5]) ? Data16[5] : (FREQ_CHANNE
 #endif
 
         gSetting_set_tmr = Data[4] & 0x01;
+#ifdef ENABLE_CTCSS_REVERSE
+        // Data[3] is unused by every other setting in this block. Decoded
+        // strictly, so 0xFF (erased) and any stale value both read as OFF.
+        gSetting_bal_mto = (Data[3] == 0x01);
+#endif
 #ifdef ENABLE_FEAT_F4HWN_SLEEP
         gSetting_set_off = (Data[4] >> 1) > 120 ? 60 : (Data[4] >> 1); 
 #endif
@@ -1193,6 +1198,9 @@ void SETTINGS_SaveSettings(void)
             (gSetting_set_gui << 3);
 
     State[2] = gSetting_set_lck;
+#ifdef ENABLE_CTCSS_REVERSE
+    State[3] = gSetting_bal_mto ? 0x01 : 0x00;
+#endif
     State[5] = ((tmp << 4) | (gSetting_set_ctr & 0x0F));
     State[6] = ((gSetting_set_tot << 4) | (gSetting_set_eot & 0x0F));
     uint8_t set_ptt_scn_sav = gSetting_set_ptt & 0x01;

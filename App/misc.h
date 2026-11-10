@@ -172,6 +172,17 @@ extern enum BacklightOnRxTx_t gSetting_backlight_on_tx_rx;
     extern bool              gSetting_set_scn;
 #endif
 
+#ifdef ENABLE_CTCSS_REVERSE
+    // Reverse tone squelch (BalMto). The menu entry and the stored byte only
+    // exist in the F4HWN build; without it there is no way to change the
+    // setting, so the compile-time flag keeps its original "always on" meaning.
+    #ifdef ENABLE_FEAT_F4HWN
+        extern bool          gSetting_bal_mto;
+    #else
+        extern const bool    gSetting_bal_mto;
+    #endif
+#endif
+
 #ifdef ENABLE_FEAT_F4HWN
     // Keypad lock scope. Values are BOTH a bitmask (ACTIONS/PTT bits tested
     // individually) AND a contiguous 0..3 menu index: the order must stay

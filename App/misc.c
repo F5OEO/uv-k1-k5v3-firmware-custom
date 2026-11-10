@@ -116,6 +116,14 @@ enum BacklightOnRxTx_t gSetting_backlight_on_tx_rx;
     bool          gSetting_set_scn = 1;
 #endif
 
+#ifdef ENABLE_CTCSS_REVERSE
+    #ifdef ENABLE_FEAT_F4HWN
+        bool          gSetting_bal_mto = 0;   // off until BalMto turns it on
+    #else
+        const bool    gSetting_bal_mto = true;
+    #endif
+#endif
+
 #ifdef ENABLE_FEAT_F4HWN
     uint8_t       gSetting_set_pwr = 1;
     bool          gSetting_set_ptt = 0;

@@ -932,15 +932,22 @@ void RADIO_SetupRegisters(bool switchToForeground)
             // Note REG_51<15> is "Enable TxCTCSS/CDCSS" per the BK4819 register list,
             // i.e. transmit only, so this override is not what makes the received
             // sub-audible tone audible.
-            BK4819_WriteRegister(BK4819_REG_51,
-                BK4819_REG_51_DISABLE_CxCSS         |
-                BK4819_REG_51_GPIO6_PIN2_NORMAL     |
-                BK4819_REG_51_TX_CDCSS_POSITIVE     |
-                BK4819_REG_51_MODE_CDCSS            |
-                BK4819_REG_51_CDCSS_23_BIT          |
-                BK4819_REG_51_1050HZ_NO_DETECTION   |
-                BK4819_REG_51_AUTO_CDCSS_BW_DISABLE |
-                BK4819_REG_51_AUTO_CTCSS_BW_DISABLE);
+            //
+            // Only while BalMto is on, and only on a channel with no Rx code: the
+            // override costs the CxCSS found/lost interrupts HandleIncoming needs
+            // for a coded channel. Same condition as RevTone_Active() in app.c.
+            if (gSetting_bal_mto && CodeType == CODE_TYPE_OFF)
+            {
+                BK4819_WriteRegister(BK4819_REG_51,
+                    BK4819_REG_51_DISABLE_CxCSS         |
+                    BK4819_REG_51_GPIO6_PIN2_NORMAL     |
+                    BK4819_REG_51_TX_CDCSS_POSITIVE     |
+                    BK4819_REG_51_MODE_CDCSS            |
+                    BK4819_REG_51_CDCSS_23_BIT          |
+                    BK4819_REG_51_1050HZ_NO_DETECTION   |
+                    BK4819_REG_51_AUTO_CDCSS_BW_DISABLE |
+                    BK4819_REG_51_AUTO_CTCSS_BW_DISABLE);
+            }
 #endif
 
 #ifndef ENABLE_FEAT_F4HWN

@@ -131,6 +131,9 @@ enum
     MENU_SET_MET,
     MENU_SET_GUI,
     MENU_SET_TMR,
+    #ifdef ENABLE_CTCSS_REVERSE
+        MENU_BAL_MTO,
+    #endif
     #ifdef ENABLE_FEAT_F4HWN_SCAN_FASTER
         MENU_SET_SCN,
     #endif

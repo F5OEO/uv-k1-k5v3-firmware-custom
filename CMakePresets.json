@@ -202,6 +202,16 @@
             }
         },
         {
+            "name": "FFVL",
+            "inherits": "Labs",
+            "cacheVariables": {
+                "ENABLE_CTCSS_REVERSE": true,
+                "AUTHOR_STRING_2": "F5OEO",
+                "EDITION_STRING": "FFVL",
+                "TARGET": "f5oeo.ffvl"
+            }
+        },
+        {
             "name": "Fusion_",
             "inherits": "default",
             "cacheVariables": {
@@ -301,6 +311,10 @@
         {
             "name": "Labs",
             "configurePreset": "Labs"
+        },
+        {
+            "name": "FFVL",
+            "configurePreset": "FFVL"
         },
         {
             "name": "Fusion_",

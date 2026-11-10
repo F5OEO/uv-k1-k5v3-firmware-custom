@@ -18,7 +18,7 @@ ARM GCC 13.3 in `/opt/toolchain`):
 ```bash
 ./compile-firmware.sh                 # default preset: Fusion
 ./compile-firmware.sh Labs            # one preset
-./compile-firmware.sh All             # Fusion Transfer FieldOps Labs Max
+./compile-firmware.sh All             # Fusion Transfer FieldOps Labs FFVL Max
 ./compile-firmware.sh Fusion -DENABLE_FEAT_F4HWN_GAME=ON   # extra -D go to cmake --preset
 ./compile-app.sh                      # every overlay app (= All)
 ./compile-app.sh fm foxhunt           # one or more apps
@@ -26,9 +26,10 @@ ARM GCC 13.3 in `/opt/toolchain`):
 
 - Valid firmware presets (`compile-firmware.sh` + `CMakePresets.json`, **not**
   the stale list in README.md): `Custom`, `Fusion`, `Transfer`, `FieldOps`,
-  `Labs`, `Max`, `Fusion_`, `Service_`, `All`. There is no `Service` preset.
+  `Labs`, `FFVL`, `Max`, `Fusion_`, `Service_`, `All`. There is no `Service` preset.
 - Output: `build/<Preset>/f4hwn.<preset-lowercased>.{elf,bin,hex,map}`; apps land
-  in `build/Apps/<AppName>.app`.
+  in `build/Apps/<AppName>.app`. The basename comes from the preset's `TARGET`,
+  so `FFVL` is the exception: `build/FFVL/f5oeo.ffvl.bin`.
 - Each run does `cmake --fresh`, so a build is always a full reconfigure+rebuild.
 - The Docker image is built **only if absent**. After editing `Dockerfile`:
   `docker rmi uvk1-uvk5v3`.
@@ -149,7 +150,8 @@ Flags flow preset → CMake → preprocessor:
    (mostly off, but UART, USB, VOX, `F4HWN_SPECTRUM`, `F4HWN_SLEEP` and others
    are on; a few such as `OVERLAY_BEAM`, `OVERLAY_INFO` and `EXT_FLASH_RW` are
    not listed there at all), and editions override. `Fusion` is the base the others
-   inherit (`FieldOps`, `Transfer`, `Labs`, `Max` inherit it; `Service_`
+   inherit (`FieldOps`, `Transfer`, `Labs`, `Max` inherit it; `FFVL`
+   inherits `Labs` and only renames the edition and the output; `Service_`
    inherits `Fusion_`).
 2. `App/CMakeLists.txt`: `enable_feature(FLAG [sources…])` adds the define and
    the conditional sources. Inter-flag dependencies are enforced there with
@@ -161,7 +163,7 @@ that are `false` in `default` are unsupported; flipping them may well not build
 or not work.
 
 Caveats worth knowing: `ENABLE_FEAT_F4HWN_OVERLAY_APPS` is **off** in `Fusion`
-(only `Labs` and `Fusion_` enable it), despite what README.md implies; it requires
+(only `Labs`, `FFVL` and `Fusion_` enable it), despite what README.md implies; it requires
 `MULTIBOOT_OVERLAY`. `ENABLE_FMRADIO` + no overlay apps additionally defines
 `ENABLE_FMRADIO_EMBEDDED` (the resident FM state machine); with overlay apps, FM
 is the `fm` app instead.

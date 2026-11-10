@@ -9,6 +9,7 @@ set -euo pipefail
 #   ./compile-firmware.sh Transfer
 #   ./compile-firmware.sh FieldOps
 #   ./compile-firmware.sh Labs
+#   ./compile-firmware.sh FFVL
 #   ./compile-firmware.sh Fusion -DDEV=ON
 #   ./compile-firmware.sh FieldOps -DENABLE_VOX=OFF
 #   ./compile-firmware.sh All
@@ -17,7 +18,7 @@ set -euo pipefail
 # ---------------------------------------------
 
 IMAGE=uvk1-uvk5v3
-RELEASE_PRESETS=(Fusion Transfer FieldOps Labs Max)
+RELEASE_PRESETS=(Fusion Transfer FieldOps Labs FFVL Max)
 FLASH_LIMIT=$((118 * 1024))
 RAM_LIMIT=$((16 * 1024))
 
@@ -35,9 +36,9 @@ EXTRA_ARGS=("$@")
 # ---------------------------------------------
 # Validate preset name
 # ---------------------------------------------
-if [[ ! "$PRESET" =~ ^(Custom|Fusion|Transfer|FieldOps|Labs|Max|Fusion_|Service_|All)$ ]]; then
+if [[ ! "$PRESET" =~ ^(Custom|Fusion|Transfer|FieldOps|Labs|FFVL|Max|Fusion_|Service_|All)$ ]]; then
   echo "❌ Unknown preset: '$PRESET'"
-  echo "Valid presets are: Custom, Fusion, Transfer, FieldOps, Labs, Max, Fusion_, Service_, All"
+  echo "Valid presets are: Custom, Fusion, Transfer, FieldOps, Labs, FFVL, Max, Fusion_, Service_, All"
   exit 1
 fi
 
@@ -130,14 +131,17 @@ run_preset_build() {
 
 build_preset() {
   local preset="$1"
-  local preset_slug log_file bin_file flash_size ram_size status warning_count
+  local log_file bin_file flash_size ram_size status warning_count
 
-  # macOS ships Bash 3.2, which does not support Bash 4's ${var,,} syntax.
-  preset_slug="$(printf '%s' "$preset" | tr '[:upper:]' '[:lower:]')"
   log_file="$(mktemp)"
   bin_file=""
 
-  find "build/${preset}" -maxdepth 1 -type f -name 'f4hwn.*' -delete 2>/dev/null || true
+  # The basename comes from the preset's TARGET, which is not always
+  # f4hwn.<preset>: FFVL builds f5oeo.ffvl. Clear every image first so a stale
+  # one cannot be reported as fresh, then pick up whatever the build produced.
+  find "build/${preset}" -maxdepth 1 -type f \
+       \( -name '*.bin' -o -name '*.elf' -o -name '*.hex' -o -name '*.map' \) \
+       -delete 2>/dev/null || true
 
   if (( QUIET )); then
     printf "🔨 Building %-10s ... " "$preset"
@@ -183,7 +187,7 @@ build_preset() {
     return "$status"
   fi
 
-  bin_file="build/${preset}/f4hwn.${preset_slug}.bin"
+  bin_file="$(find "build/${preset}" -maxdepth 1 -type f -name '*.bin' -print 2>/dev/null | head -n 1)"
   if [[ -z "$bin_file" || ! -f "$bin_file" ]]; then
     if (( QUIET )); then
       printf "❌ FAILED\n"

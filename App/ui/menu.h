@@ -172,7 +172,10 @@ enum
 #ifdef ENABLE_FEAT_F4HWN_MENU_CAT
 // Categories (niveau 1) — l'ordre = ordre d'affichage de l'ecran des categories.
 enum {
-    CAT_CHANNELS = 0,
+#ifdef ENABLE_CTCSS_REVERSE
+    CAT_FFVL = 0,  // en tete de l'ecran des categories ; seul item : BalMto
+#endif
+    CAT_CHANNELS,
     CAT_SCAN,
     CAT_KEYS,
     CAT_POWER,

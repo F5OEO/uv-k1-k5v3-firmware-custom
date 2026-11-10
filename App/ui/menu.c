@@ -567,6 +567,9 @@ uint8_t UI_MENU_GetViewPos(uint8_t id)
 // (ex. SetPwr colle a Power). CAT_ALL n'a pas de liste : il reprend MenuList
 // tel quel, donc ordre et numeros d'origine preserves.
 const char *const CategoryNames[CAT_COUNT] = {
+#ifdef ENABLE_CTCSS_REVERSE
+    [CAT_FFVL]     = "FFVL",
+#endif
     [CAT_CHANNELS] = "Channels",
     [CAT_SCAN]     = "Scan",
     [CAT_KEYS]     = "Keys",
@@ -584,6 +587,10 @@ const char *const CategoryNames[CAT_COUNT] = {
 // l'enum (menu.h) : sur un preset qui ne les compile pas, ils ne sont pas
 // references (sinon build KO, ex. preset Custom). Les autres MENU_SET_* sont
 // sous ENABLE_FEAT_F4HWN, garanti par la dependance CMake (App/CMakeLists.txt).
+#ifdef ENABLE_CTCSS_REVERSE
+// Categorie propre a l'edition FFVL, en premiere position de l'ecran.
+static const uint8_t CatFfvl[]    = { MENU_BAL_MTO };
+#endif
 static const uint8_t CatChannels[] = {
     MENU_STEP, MENU_TXP, MENU_SET_PWR, MENU_R_DCS, MENU_R_CTCS, MENU_T_DCS,
     MENU_T_CTCS, MENU_SFT_D, MENU_OFFSET, MENU_W_N,
@@ -629,17 +636,16 @@ static const uint8_t CatAudio[]   = {
     MENU_SET_AUD,
 #endif
 };
-static const uint8_t CatRadio[]   = { MENU_SQL,
-#ifdef ENABLE_CTCSS_REVERSE
-    MENU_BAL_MTO,
-#endif
-    MENU_STE, MENU_RP_STE, MENU_ROGER, MENU_VOX, MENU_TDR };
+static const uint8_t CatRadio[]   = { MENU_SQL, MENU_STE, MENU_RP_STE, MENU_ROGER, MENU_VOX, MENU_TDR };
 static const uint8_t CatDtmf[]    = { MENU_UPCODE, MENU_DWCODE, MENU_D_ST, MENU_D_PRE, MENU_D_LIVE_DEC };
 static const uint8_t CatService[] = { MENU_F_LOCK, MENU_350EN, MENU_BATCAL, MENU_BATTYP, MENU_SET_NAV, MENU_RESET };
 
 typedef struct { const uint8_t *ids; uint8_t len; } cat_list_t;
 
 static const cat_list_t CategoryLists[CAT_COUNT] = {
+#ifdef ENABLE_CTCSS_REVERSE
+    [CAT_FFVL]     = { CatFfvl,     ARRAY_SIZE(CatFfvl)     },
+#endif
     [CAT_CHANNELS] = { CatChannels, ARRAY_SIZE(CatChannels) },
     [CAT_SCAN]     = { CatScan,     ARRAY_SIZE(CatScan)     },
     [CAT_KEYS]     = { CatKeys,     ARRAY_SIZE(CatKeys)     },

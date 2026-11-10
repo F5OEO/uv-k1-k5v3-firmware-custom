@@ -1,8 +1,12 @@
-name: Build Firmware
+name: Build FFVL
 
 on:
   push:
     branches: [ main ]
+
+# Needed to move the rolling tag and publish the release.
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -12,16 +16,25 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v3
 
-    - name: Compile firmware
+    - name: Compile FFVL firmware
       run: |
-        chmod +x compile-firmware.sh compile-app.sh
-        ./compile-firmware.sh All
-        ./compile-app.sh All
+        chmod +x compile-firmware.sh
+        ./compile-firmware.sh FFVL
 
-    - name: Upload artifacts
-      uses: actions/upload-artifact@v4
-      with:
-        name: firmware-artifact
-        path: |
-          build/*/*.bin
-          build/Apps/*.app
+    # One rolling release, tagged "latest", holding exactly one asset. It is
+    # deleted and recreated on every push so no stale binary can survive, and
+    # --cleanup-tag drops the tag with it so the new one lands on this commit.
+    # Pushing that tag does not retrigger this workflow: the trigger above
+    # filters on branches, which never matches a tag ref.
+    - name: Publish f5oeo.ffvl.bin as the rolling release
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        gh release delete latest --cleanup-tag --yes 2>/dev/null || true
+        gh release create latest build/FFVL/f5oeo.ffvl.bin \
+          --target "$GITHUB_SHA" \
+          --prerelease \
+          --title "FFVL latest build" \
+          --notes "FFVL edition built from \`${GITHUB_SHA}\` on $(date -u '+%Y-%m-%d %H:%M UTC').
+
+        Flash \`f5oeo.ffvl.bin\` to a Quansheng UV-K1 or UV-K5 V3."

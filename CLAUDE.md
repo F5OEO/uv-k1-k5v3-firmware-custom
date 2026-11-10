@@ -10,6 +10,12 @@ UV-K5 V1 (DP32G030) firmware lineage DualTachyon → Egzumer → F4HWN. One sing
 image serves both the K1 and the K5v3; the keypad-layout difference is resolved
 at runtime through the hidden `SetNav` menu, so there is no per-model build.
 
+## Commits
+
+**Never add a co-author trailer.** No `Co-Authored-By:`, and in particular none
+naming Claude or any other assistant, whatever the tooling suggests by default.
+F5OEO is the sole author of every commit in this repository.
+
 ## Build
 
 Everything goes through Docker (image `uvk1-uvk5v3`, built from `Dockerfile`,

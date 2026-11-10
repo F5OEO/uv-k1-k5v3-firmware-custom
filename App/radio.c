@@ -933,10 +933,11 @@ void RADIO_SetupRegisters(bool switchToForeground)
             // i.e. transmit only, so this override is not what makes the received
             // sub-audible tone audible.
             //
-            // Only while BalMto is on, and only on a channel with no Rx code: the
-            // override costs the CxCSS found/lost interrupts HandleIncoming needs
-            // for a coded channel. Same condition as RevTone_Active() in app.c.
-            if (gSetting_bal_mto && CodeType == CODE_TYPE_OFF)
+            // Only while BalMto filters - which is BalMto OFF, see misc.h - and
+            // only on a channel with no Rx code: the override costs the CxCSS
+            // found/lost interrupts HandleIncoming needs for a coded channel.
+            // Same condition as RevTone_Active() in app.c.
+            if (BalMto_Filtering() && CodeType == CODE_TYPE_OFF)
             {
                 BK4819_WriteRegister(BK4819_REG_51,
                     BK4819_REG_51_DISABLE_CxCSS         |

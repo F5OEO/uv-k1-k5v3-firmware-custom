@@ -118,9 +118,9 @@ enum BacklightOnRxTx_t gSetting_backlight_on_tx_rx;
 
 #ifdef ENABLE_CTCSS_REVERSE
     #ifdef ENABLE_FEAT_F4HWN
-        bool          gSetting_bal_mto = 0;   // off until BalMto turns it on
+        bool          gSetting_bal_mto = 0;   // OFF, i.e. filtering: see misc.h
     #else
-        const bool    gSetting_bal_mto = true;
+        const bool    gSetting_bal_mto = false;
     #endif
 #endif
 

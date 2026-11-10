@@ -152,7 +152,7 @@ const t_menu_item MenuList[] =
 #endif
     {"SetTmr",      MENU_SET_TMR       },
 #ifdef ENABLE_CTCSS_REVERSE
-    {"BalMto",      MENU_BAL_MTO       }, // reverse tone squelch: mute on 67.0-94.8 Hz
+    {"BalMto",      MENU_BAL_MTO       }, // inverted: OFF mutes 67.0-94.8 Hz, ON passes all
 #endif
 #ifdef ENABLE_FEAT_F4HWN_SLEEP
     {"SetOff",       MENU_SET_OFF      },

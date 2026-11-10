@@ -173,14 +173,23 @@ extern enum BacklightOnRxTx_t gSetting_backlight_on_tx_rx;
 #endif
 
 #ifdef ENABLE_CTCSS_REVERSE
-    // Reverse tone squelch (BalMto). The menu entry and the stored byte only
-    // exist in the F4HWN build; without it there is no way to change the
-    // setting, so the compile-time flag keeps its original "always on" meaning.
+    // Reverse tone squelch (BalMto). READ THE SENSE CAREFULLY: it is the
+    // opposite of an ordinary tone squelch, and of what the menu word suggests.
+    //   OFF - the default, and what an erased byte decodes to - filters the low
+    //         CTCSS tones, so those transmissions stay silent.
+    //   ON  - lets everything through, which is the stock behaviour.
+    // The menu entry and the stored byte only exist in the F4HWN build; without
+    // it there is no way to change the setting, so the compile-time flag keeps
+    // its original "filter always" meaning and the value stays zero.
     #ifdef ENABLE_FEAT_F4HWN
         extern bool          gSetting_bal_mto;
     #else
         extern const bool    gSetting_bal_mto;
     #endif
+
+    // The one place the inversion lives. Everything that acts on the setting
+    // asks this, so no caller has to remember which way round it reads.
+    static inline bool BalMto_Filtering(void) { return !gSetting_bal_mto; }
 #endif
 
 #ifdef ENABLE_FEAT_F4HWN

@@ -527,7 +527,8 @@ gEeprom.FreqChannel[1]   = IS_FREQ_CHANNEL(Data16[5]) ? Data16[5] : (FREQ_CHANNE
         gSetting_set_tmr = Data[4] & 0x01;
 #ifdef ENABLE_CTCSS_REVERSE
         // Data[3] is unused by every other setting in this block. Decoded
-        // strictly, so 0xFF (erased) and any stale value both read as OFF.
+        // strictly, so 0xFF (erased) and any stale value both read as OFF -
+        // which for BalMto is the filtering position, the wanted default.
         gSetting_bal_mto = (Data[3] == 0x01);
 #endif
 #ifdef ENABLE_FEAT_F4HWN_SLEEP

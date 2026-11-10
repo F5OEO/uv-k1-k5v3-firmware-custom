@@ -413,8 +413,9 @@ static void RevTone_Reset(void)
 // Where the feature applies. Everything below has to agree, because outside
 // these conditions the measurement this depends on is either absent or harmful:
 //
-//  - BalMto off: the whole thing is dormant. revToneDecided is false while
-//    nothing polls, so without this test HandleIncoming would never open.
+//  - BalMto on: the whole thing is dormant, because ON is the pass-everything
+//    position. revToneDecided is false while nothing polls, so without this
+//    test HandleIncoming would never open.
 //  - AM: RADIO_SetupRegisters() skips the CTCSS block entirely, REG_68 reports
 //    nothing, and the only effect would be the 100 ms settle delay.
 //  - A channel with RxCTCS or RxDCS set: MEASMODE replaces the compare setup,
@@ -422,7 +423,7 @@ static void RevTone_Reset(void)
 //    HandleIncoming waits on - so such a channel would never open at all.
 static bool RevTone_Active(void)
 {
-    return gSetting_bal_mto
+    return BalMto_Filtering()
         && gRxVfo != NULL
         && gRxVfo->Modulation == MODULATION_FM
         && gRxVfo->pRX->CodeType == CODE_TYPE_OFF;

@@ -99,7 +99,13 @@ def main() -> None:
     if not a.out and not a.raw and not a.play:
         a.out = "af.wav"
 
-    ser = Serial(a.port, 115200, timeout=0.5)
+    # 50 ms, not 500: during a gap the loop only pads the sink when a read
+    # comes back empty, so the read timeout IS the granularity of the silence.
+    # Half a second written at once and then half a second of nothing drains a
+    # sink whose buffer is shorter than that - 30 underruns over two minutes,
+    # measured. With data flowing a 512-byte read fills in 32 ms at 16 kB/s,
+    # so asking more often costs nothing.
+    ser = Serial(a.port, 115200, timeout=0.05)
     try:
         ser.dtr = True                  # the app only sends with DTR asserted
     except OSError as exc:              # a pty or a port with no modem lines
@@ -115,11 +121,36 @@ def main() -> None:
     player = None
     warm = bytearray()
 
+    play_rate = float(a.rate)   # what the sink was opened at
+    play_t0 = 0.0               # when it opened
+    play_n = 0                  # samples handed to it since
+
     def spawn_player(rate: int):
+        nonlocal play_rate, play_t0, play_n
         print(f"aplay at {rate} Hz", file=sys.stderr)
+        play_rate, play_t0, play_n = float(rate), time.time(), 0
         return subprocess.Popen(
             ["aplay", "-q", "-D", a.device, "-t", "raw", "-f", "S16_LE",
              "-c", "1", "-r", str(rate)], stdin=subprocess.PIPE)
+
+    def feed(chunk: bytes) -> None:
+        """Audio to the sink, preceded by silence for whatever time passed
+        without any. With the gate on (the app's key 1) nothing arrives
+        between transmissions, and a sink with nothing to play starves: one
+        240 s session reported a 212 s underrun, which is the gate working but
+        reads like a fault and clicks on the way back in. Silence keeps the
+        sink exactly on real time, so a gap sounds like a closed squelch."""
+        nonlocal play_n
+        if player is None:
+            return
+        want = int((time.time() - play_t0) * play_rate)
+        pad = want - play_n - len(chunk) // 2
+        if pad > 0:
+            player.stdin.write(bytes(2 * pad))
+            play_n += pad
+        if chunk:
+            player.stdin.write(chunk)
+            play_n += len(chunk) // 2
 
     pcm = bytearray()
     pending = b""
@@ -172,6 +203,7 @@ def main() -> None:
             if not block:
                 if b_last is not None and now - b_last > GAP_S:
                     end_burst()
+                feed(b"")               # the sink still needs its silence
                 continue
             if t0 is None:
                 t0 = now
@@ -230,16 +262,19 @@ def main() -> None:
                    ((active_t + b_last - b_start) or 1.0)
             if a.play:
                 if player is not None:
-                    player.stdin.write(out)
+                    feed(out)
                 else:
                     warm += out
-                    if live > 0 and (b_last - b_start) >= WARM_S and \
-                       len(warm) >= 2 * int(WARM_S * a.rate):
-                        player = spawn_player(int(round(live)))
-                        player.stdin.write(warm)
+                    # A tenth of a second in hand, then open at the NOMINAL
+                    # rate: the silence padding tops the sink up against real
+                    # time, so opening a shade fast only inserts the odd
+                    # single sample, where waiting to measure meant a 1.7 s
+                    # transmission was never heard at all.
+                    if len(warm) >= 2 * (a.rate // 5):
+                        player = spawn_player(a.rate)
+                        player.stdin.write(warm)   # the backlog is the latency
+                        play_n += len(warm) // 2
                         warm = bytearray()
-                    elif len(warm) > 4 * a.rate:        # hold two seconds
-                        del warm[:len(warm) - 4 * a.rate]
             if a.out:
                 pcm += out
             if a.split:
@@ -256,6 +291,7 @@ def main() -> None:
         if a.play and player is None and warm:      # too short to measure
             player = spawn_player(a.rate)
             player.stdin.write(warm)
+            play_n += len(warm) // 2
         if player:
             player.stdin.close()
             player.wait()

@@ -147,6 +147,68 @@ it. Nothing in the app was wrong, and no amount of reading the app would have
 found it — which is the argument for `txFs` and the stall count being on the
 screen at all.
 
+## The host tools, and what each one is for
+
+One program at a time owns the USB port, so the modes are the ways of having
+both directions at once:
+
+| | |
+|---|---|
+| `tools/aflisten.sh` | listen only |
+| `afbridge.py clip.wav` | send a clip, nothing else |
+| `afbridge.py --fifo` | hold the port, play what is received, and transmit whatever WAV path is echoed into `/tmp/afbridge.fifo` — the one that serves day to day |
+| `afbridge.py --roger clip.wav` | answer every received transmission with a fixed clip |
+| `afbridge.py --parrot` | send back what was just received, as received |
+| `tools/afvox.sh` | the radio as a VOX headset: speakers out, microphone in |
+
+### Measured, 2026-11-11, second session
+
+| | |
+|---|---|
+| a 23.17 s clip, three times | `OK` each time, no dry spell |
+| the pacing servo over 23 s | settled at **2979.8 B/s**, i.e. a clock factor of 1.0068 |
+| the radio's ring through it | 84 to 96 against a target of 88 |
+| **parrot round trips** | **1.7 s, 3.5 s and 16.6 s, all `OK`** |
+| the round trip by ear | *"la chaîne est nickel, je ne sens pas la différence"* |
+
+The servo's 1.0068 is worth keeping: it was measured blind, by the host
+watching the ring fill, and it lands on `beacon_say.py`'s `CLOCK = 1.0062`
+(fitted by correlation against the air) and on the 7970 Hz the receive path
+measures. Three independent methods inside 0.06 %.
+
+The parrot figure is the one that bounds the whole chain, because the same
+signal makes the complete round trip: AM detector, PA4 with its ~1 kHz
+coupling, the ADC, the DMA and USB on the way in, then the AGC, 3-bit ADPCM at
+16.8 dB, the flow control and the gain field on the way out, and the air twice.
+16.6 s of that came back indistinguishable by ear from what went in. Nothing
+is trimmed either - the squelch's own noise at both ends of a transmission
+goes back out with the speech.
+
+### Eight things the air corrected
+
+All of them in the host tools, none in the app, and only one was findable
+without the radio:
+
+1. the marker went out before key-up, so a host streaming on it filled a ring
+   nobody was draining - and that ring flushes;
+2. `tx_end()` calls `RADIO_SetupRegisters`, so every receive after a
+   transmission ran with the AGC back on;
+3. a dry ring cost `delay_ms(1)`, eight sample periods of held gain - a gap
+   and eight periods of stretch at once;
+4. `Link.poll()` read 4096 bytes from a port with a 50 ms timeout, which
+   throttled the send loop to 640 B/s against the 3000 the radio eats: the
+   screen read `C1729/65535`, 1729 samples a second with the stall counter
+   saturated, and the audio was heard as "chirpy";
+5. the VOX keyed with the jitter buffer in the *host*, leaving the radio's own
+   ring empty, so the first scheduling hiccup starved it - the file path had
+   had its 192 bytes of lead all along;
+6. when the radio ended a burst itself, the host kept `tx` set and its
+   "let the tail out" loop never fell through, so nothing keyed again;
+7. the speakers fed the microphone and the VOX answered its own loudspeaker,
+   which needed the VOX held off while received audio is still playing;
+8. `encode()` blocks for two or three seconds in a subprocess, which starved
+   the sink because nothing pumped it meanwhile - hence `prefill()`.
+
 ## Test order
 
 1. **Receive only**: `tools/aflisten.sh`. Audio present, `OVR 0`, and the gate

@@ -15,6 +15,9 @@
  */
 
 #include "apps/app_overlay.h"
+#ifdef ENABLE_FEAT_F4HWN_USB_AUDIO
+#include "usb/usbd_audio_if.h"
+#endif
 #include "apps/app_config_proxy.h"
 
 #ifdef ENABLE_FEAT_F4HWN_OVERLAY_APPS
@@ -1421,10 +1424,19 @@ static uint8_t app_launch(uint8_t slot)
 
     app_entry_t entry = (app_entry_t)(((uint32_t)ws + h.entry_off) | 1u);
     app_cyc_base = APP_CYC_DIAGNOSTIC_START - app_cycles_raw();
+#ifdef ENABLE_FEAT_F4HWN_USB_AUDIO
+    /* An app owns the ADC, TIM3 and DMA1 channel 1 for itself - af_capture,
+     * AF Stream and AF Bridge all reconfigure them - so the USB microphone
+     * stands down for the duration rather than fighting over the hardware. */
+    USBAUDIO_Suspend();
+#endif
     entry(&app_api);
 
     /* A capture the app left open must not keep PA4 and the DAC. */
     app_af_capture_close();
+#ifdef ENABLE_FEAT_F4HWN_USB_AUDIO
+    USBAUDIO_Resume();
+#endif
 #ifdef APP_SERIAL
     app_serial_release();
 #endif

@@ -1,5 +1,9 @@
 #include "usbd_core.h"
 #include "usbd_cdc.h"
+#ifdef ENABLE_FEAT_F4HWN_USB_AUDIO
+#include "usb_audio.h"
+#include "usbd_audio_if.h"
+#endif
 
 /*!< endpoint address */
 #define CDC_IN_EP  0x81
@@ -11,17 +15,53 @@
 #define USBD_MAX_POWER     100
 #define USBD_LANGID_STRING 1033
 
+#ifdef ENABLE_FEAT_F4HWN_USB_AUDIO
+/* The radio as a USB microphone, NEXT TO the serial port: CDC keeps
+ * interfaces 0 and 1, audio takes 2 and 3. Dropping CDC would take appload,
+ * UV Studio, K5Viewer and every afbridge mode with it. */
+#define AUDIO_IN_EP       0x84      /* CDC holds 0x81, 0x02 and 0x83 */
+#define AUDIO_FREQ        8000u
+#define AUDIO_IN_MPS      18u       /* 9 samples: the asynchronous ceiling */
+#define AUDIO_AC_INTF     0x02
+#define AUDIO_AS_INTF     0x03
+#define AUDIO_IN_TERM     0x01
+#define AUDIO_OUT_TERM    0x02
+/* The AudioControl macro emits its own IAD, interface and header; the two
+ * terminals and the AudioStreaming interface follow it. */
+#define AUDIO_AC_TOTAL    (0x09 + AUDIO_SIZEOF_AC_INPUT_TERMINAL_DESC + \
+                           AUDIO_SIZEOF_AC_OUTPUT_TERMINAL_DESC)
+#define USB_AUDIO_SIZE    (AUDIO_AC_DESCRIPTOR_INIT_LEN(1) + \
+                           AUDIO_SIZEOF_AC_INPUT_TERMINAL_DESC + \
+                           AUDIO_SIZEOF_AC_OUTPUT_TERMINAL_DESC + \
+                           AUDIO_AS_DESCRIPTOR_INIT_LEN(1))
+#define USB_INTF_COUNT    0x04
+#define USB_BCD_DEVICE    0x0101    /* Windows caches descriptors per VID/PID */
+#else
+#define USB_AUDIO_SIZE    0
+#define USB_INTF_COUNT    0x02
+#define USB_BCD_DEVICE    0x0100
+#endif
+
 /*!< config descriptor size */
-#define USB_CONFIG_SIZE (9 + CDC_ACM_DESCRIPTOR_LEN)
+#define USB_CONFIG_SIZE (9 + CDC_ACM_DESCRIPTOR_LEN + USB_AUDIO_SIZE)
 
 uint8_t dma_in_ep_idx  = (CDC_IN_EP & 0x7f);
 uint8_t dma_out_ep_idx = CDC_OUT_EP;
 
 /*!< global descriptor */
 static const uint8_t cdc_descriptor[] = {
-    USB_DEVICE_DESCRIPTOR_INIT(USB_2_0, 0xEF, 0x02, 0x01, USBD_VID, USBD_PID, 0x0100, 0x01),
-    USB_CONFIG_DESCRIPTOR_INIT(USB_CONFIG_SIZE, 0x02, 0x01, USB_CONFIG_BUS_POWERED, USBD_MAX_POWER),
+    USB_DEVICE_DESCRIPTOR_INIT(USB_2_0, 0xEF, 0x02, 0x01, USBD_VID, USBD_PID, USB_BCD_DEVICE, 0x01),
+    USB_CONFIG_DESCRIPTOR_INIT(USB_CONFIG_SIZE, USB_INTF_COUNT, 0x01, USB_CONFIG_BUS_POWERED, USBD_MAX_POWER),
     CDC_ACM_DESCRIPTOR_INIT(0x00, CDC_INT_EP, CDC_OUT_EP, CDC_IN_EP, 0x02),
+#ifdef ENABLE_FEAT_F4HWN_USB_AUDIO
+    /* AudioControl: one streaming interface in the collection, and the
+     * minimal topology - microphone in, USB streaming out, no feature unit. */
+    AUDIO_AC_DESCRIPTOR_INIT(AUDIO_AC_INTF, 0x02, AUDIO_AC_TOTAL, 0x00, AUDIO_AS_INTF),
+    AUDIO_AC_INPUT_TERMINAL_DESCRIPTOR_INIT(AUDIO_IN_TERM, AUDIO_INTERM_MIC, 0x01, 0x0000),
+    AUDIO_AC_OUTPUT_TERMINAL_DESCRIPTOR_INIT(AUDIO_OUT_TERM, AUDIO_TERMINAL_STREAMING, AUDIO_IN_TERM),
+    AUDIO_AS_IN_ASYNC_DESCRIPTOR_INIT(AUDIO_AS_INTF, AUDIO_OUT_TERM, 0x01, AUDIO_IN_EP,
+                                      AUDIO_IN_MPS, 0x01, AUDIO_SAMPLE_FREQ_3B(AUDIO_FREQ)),
+#endif
     ///////////////////////////////////////
     /// string0 descriptor
     ///////////////////////////////////////
@@ -183,6 +223,11 @@ void cdc_acm_init(cdc_acm_rx_buf_t rx_buf)
     usbd_add_interface(usbd_cdc_acm_init_intf(&intf1));
     usbd_add_endpoint(&cdc_out_ep);
     usbd_add_endpoint(&cdc_in_ep);
+#ifdef ENABLE_FEAT_F4HWN_USB_AUDIO
+    /* After the CDC pair, so the interfaces number 0, 1 then 2, 3 as the
+     * descriptor above declares them. */
+    USBAUDIO_Init();
+#endif
     usbd_initialize();
 }
 

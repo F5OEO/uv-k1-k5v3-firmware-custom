@@ -111,6 +111,15 @@ if(ENABLE_USB)
     )
 endif()
 
+# USB Audio Class capture: the radio as a microphone, beside the CDC port and
+# never instead of it - appload.py, UV Studio and K5Viewer all need that port.
+if(ENABLE_FEAT_F4HWN_USB_AUDIO AND NOT ENABLE_USB)
+    message(FATAL_ERROR "USB audio requires ENABLE_USB.")
+endif()
+enable_feature(ENABLE_FEAT_F4HWN_USB_AUDIO
+    usb/usbd_audio_if.c
+)
+
 if(ENABLE_UART OR ENABLE_USB)
     target_sources(App INTERFACE 
         app/uart.c

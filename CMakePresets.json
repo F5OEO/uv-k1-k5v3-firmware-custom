@@ -63,6 +63,7 @@
                 "ENABLE_FEAT_F4HWN_GAME": false,
                 "ENABLE_FEAT_F4HWN_K5VIEWER": false,
                 "ENABLE_FEAT_F4HWN_SPECTRUM": true,
+                "ENABLE_FEAT_F4HWN_USB_AUDIO": false,
                 "ENABLE_FEAT_F4HWN_RX_TX_TIMER": true,
                 "ENABLE_FEAT_F4HWN_CHARGING_C": false,
                 "ENABLE_FEAT_F4HWN_SLEEP": true,
@@ -206,6 +207,7 @@
             "inherits": "Labs",
             "cacheVariables": {
                 "ENABLE_CTCSS_REVERSE": true,
+                "ENABLE_FEAT_F4HWN_USB_AUDIO": true,
                 "AUTHOR_STRING_2": "F5OEO",
                 "EDITION_STRING": "FFVL",
                 "TARGET": "f5oeo.ffvl"

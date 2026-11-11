@@ -209,6 +209,7 @@ passed to `void app_main(const app_api_t *api)` at blob offset 0.
   are `APP_NAME`, `APP_VER`, `APP_API_MIN` and the `pack_app.py` flags), `app.ld`,
   `<name>_app.c`, optional `gen_assets.py`. Discovery is "has a `build.sh`", so a
   new directory with one is picked up automatically by `compile-app.sh`.
-- `handoffa`, `handoffb` and `vfotest` are API test apps and `pllfm` is an RF
-  experiment; all four are in `ALL_EXCLUDED_APPS` in `compile-app.sh`, so `All`
-  skips them and they are buildable only by name.
+- `handoffa`, `handoffb` and `vfotest` are API test apps, and `pllfm`, `voicetx`
+  and `vtxdata` are RF experiments; all six are in `ALL_EXCLUDED_APPS` in
+  `compile-app.sh`, so `All` skips them and they are buildable only by name.
+  `vtxdata` is built once per block, `VTX_CHUNK=1` then `VTX_CHUNK=2`.

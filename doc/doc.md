@@ -825,6 +825,83 @@ pass. Resolution is not the limit; the time source and the orbit propagator are.
   pedestal's sign is not guaranteed from one key-up to the next and the audio
   may come out inverted (no ear hears that); and the park has to be redone at
   every key-up.
+
+  **A clip was then sent end to end** by `App/apps/voicetx`: 0.825 s of
+  speech, 8 kHz, 4 bits a sample (Lloyd-Max, 17.8 dB) carried in the app's own
+  asset block, streamed 16 bytes at a time with the flash read in the slack of
+  a sample period - 1679 cycles measured against the 6000 of a period, so it
+  never disturbs the pacing. Received on the SDR and correlated against the
+  samples that were sent: **0.945, i.e. 9.2 dB of SNR**, flat across the clip,
+  3.45 kHz of deviation at full scale, playback clock 0.64 % slow. Plainly
+  intelligible speech out of a radio whose transmitter has no PCM input.
+
+  That measurement also showed the gain law is **affine** - deviation
+  proportional to (gain + 13.6) - so its offset is pure DC and nothing needs
+  linearising; pre-dividing by the fit only clips the quiet samples and took
+  the correlation down to 0.358.
+
+  **A second clip, a real beacon message.** "Balise du 86, vent nord-est, 25,
+  maxi 30." is 2.51 s, and 3840 B of assets is 12 kbit/s at that length: 4 kHz
+  at 3 bits of IMA ADPCM (12.4 dB), 3759 B. Received: **0.894 of waveform
+  correlation, 6.0 dB of SNR, 723 Hz rms of deviation**, 0.886 on the 20 ms
+  envelope.
+
+  Two things had to be right, and the ablation shows what each is worth:
+
+  | | correlation |
+  |---|---|
+  | the clip as encoded, written out at its own 4 kHz | 0.31 |
+  | + each sample interpolated into two, written at 8 kHz | 0.53 |
+  | + an AGC and a limiter before encoding | **0.89** |
+
+  A zero-order hold at 4 kHz puts its first image at 4 kHz minus the audio
+  frequency, i.e. **inside** the receiver's audio band; interpolating moves
+  the images to 8 kHz for one extra register write per sample. And speech has
+  a crest factor of about 12 dB, so without compression it uses a tenth of the
+  gain field and buries itself in the link's noise - 5 ms attack, 150 ms
+  release, up to +21 dB, then a tanh limiter.
+
+  The budget, not the path, sets the length: 3840 B buys either 0.96 s at
+  8 kHz and 4 bits or 2.5 s at 4 kHz and 3 bits.
+
+  **A clip spanning several slots lifts that.** The app store is a plain
+  array - 0x102000 + slot * 0x2000, assets at +0x100 (`app_overlay.h:37`) -
+  and `sys_storage_read` addresses it directly, so the clip is cut into
+  blocks and each block carried by an app of its own
+  (`App/apps/vtxdata`, 260 B of code for 3839 B of payload). Each block
+  starts with 'V','T','X', its index and the total sample count; Voice TX
+  scans the 48 slots at startup and plays them in index order, whatever slots
+  the installer chose.
+
+  So the **whole announcement** - "Balise du 86, vent nord-est, 25 kilometres
+  heure, 30 maximum.", 3.63 s at 8 kHz and 3 bits, 14.8 dB, 10878 B over three
+  blocks - went out in one burst. Correlated block by block against the gain
+  sequence written: **0.926, 0.931, 0.881**, with each join landing within a
+  tenth of a millisecond of where the clock puts it; **0.912 over the whole
+  clip, 6.9 dB of SNR, 761 Hz rms of deviation**.
+
+  One unexplained result worth recording. While the last block was short -
+  3216 B against the 3831 the other two hold - block 2 came out wrong from its
+  very first sample, 0.396 and 0.385 of correlation on two bursts, with blocks
+  0 and 1 unaffected and all three byte sums read back from flash correct.
+  **Padding every block to 3831 B gave 0.881**, and that is the build the
+  figures above come from.
+
+  Why it fixed it is not known, and the obvious explanation does not survive
+  the arithmetic: 29008 samples is 10216 per full block, so block 2 needs
+  exactly 8576 samples and exactly 3216 B. The player stops on the sample
+  count, so the bytes past 3216 are prefetched by the 15-byte read and never
+  decoded, whatever they hold. The on-screen byte sums cover the real length
+  rather than the padded one, so they never spoke to those bytes either. The
+  padding is kept because it is what the passing burst ran, and because it
+  makes every block identical in length; it is not a diagnosis.
+
+  One caveat on the clip source: the factory voice prompts at 0x14d000, with
+  their index at 0x14c000 / 0x14c800 (`App/audio.c:201`), **are gone in this
+  firmware** - the overlay-app store spans 0x102000 to 0x160000
+  (`app_overlay.h:37`) and sits on top of them, so reading that index returns
+  app data. A clip has to be carried some other way; the app's own 3840 B
+  asset block is the obvious one, and holds about a second at 4 bits.
 - **Reference calibration**, per §8.1 - without it the correction lands on a
   fixed error larger than itself.
 

@@ -178,6 +178,11 @@ enum { S_READY = 0, S_TX, S_DONE, S_NOCLIP, S_DENIED, S_MISMATCH, S_UNDER };
  *     'V','T','X','S'   then the sample count, 32 bits little-endian,
  *                       then the 3-bit ADPCM stream, 8 codes to 3 bytes.
  *
+ * A count of 0xFFFFFFFF means open-ended - a live microphone, where nobody
+ * knows in advance how long the operator will talk.  The burst then runs
+ * until the host closes the port (DTR drops, checked once a group) or stops
+ * feeding it (the underrun guard, 250 ms).
+ *
  * 8 kHz at 3 bits is 3 kB/s, which USB CDC carries without noticing, and the
  * radio answers one line per event so the host knows what happened.  Nothing
  * is written to flash, the host decides when the beacon speaks, and the
@@ -202,6 +207,8 @@ enum { S_READY = 0, S_TX, S_DONE, S_NOCLIP, S_DENIED, S_MISMATCH, S_UNDER };
 #define SR_MASK   (SR_SIZE - 1u)
 #define SR_WAIT_MS 250u                 /* hold the carrier this long for a
                                            late host before giving up       */
+#define SR_OPEN   0xFFFFFFFFu           /* sample count meaning "until I stop" */
+#define SR_MAX    0x00FFFFFFu           /* 35 min: a sanity bound, not a budget */
 
 static struct {
     const app_api_t *A;
@@ -416,6 +423,7 @@ static bool keyUp(void)
 static void play(void)
 {
     const app_api_t *A = g.A;
+    const bool open = g.stream && g.nstream == SR_OPEN;
     uint32_t left = g.stream ? g.nstream : g.total;
     uint32_t next, grp = 0u;
     int32_t  pred = 0;
@@ -437,6 +445,13 @@ static void play(void)
         if (k >= 8u) {
             if (g.stream) {          /* the host feeds the next three bytes  */
                 uint16_t wait = 0u;
+                if (open) {          /* the host hanging up ends the burst   */
+                    uint8_t st2 = A->serial_ctl(APP_SERIAL_USB, 0);
+                    g.sevt |= (uint8_t)(st2 & (APP_SERIAL_LOST
+                                               | APP_SERIAL_TIMEOUT));
+                    if (!(st2 & APP_SERIAL_HOST))
+                        break;
+                }
                 srTop();
                 while (srUsed() < 3u) {
                     A->delay_ms(1u);
@@ -683,8 +698,9 @@ static void pollStream(void)
         g.nhdr = 0u;
         g.nstream = (uint32_t)g.hdr[4] | ((uint32_t)g.hdr[5] << 8)
                   | ((uint32_t)g.hdr[6] << 16) | ((uint32_t)g.hdr[7] << 24);
-        /* A whole burst must fit the budget the player was built for. */
-        if (g.nstream == 0u || g.nstream > (uint32_t)BLK_MAX * (BLOCK_PAY / 3u * 8u)) {
+        /* Nothing is stored, so the only bound is sanity: the flash budget
+         * has no say here, and SR_OPEN says there is no length at all. */
+        if (g.nstream == 0u || (g.nstream > SR_MAX && g.nstream != SR_OPEN)) {
             say("VTX BADLEN\n");
             return;
         }

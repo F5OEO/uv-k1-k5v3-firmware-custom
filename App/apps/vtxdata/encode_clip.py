@@ -71,51 +71,95 @@ def trim(x, thr_db=-45.0, pad_ms=20):
     b = min(len(x), (live[-1]+1)*k + pad)
     return x[a:b]
 
-def agc(x, target=0.35, attack_ms=5.0, release_ms=150.0, max_gain_db=21.0):
+class Agc:
     """One-sided envelope follower, then a tanh limiter.  Speech has about
-    12 dB of crest factor; without this it uses a tenth of the gain field."""
-    aa = math.exp(-1.0/(attack_ms*RATE/1000.0))
-    ar = math.exp(-1.0/(release_ms*RATE/1000.0))
-    gmax = 10.0**(max_gain_db/20.0)
-    env, y = 0.0, np.empty_like(x)
-    for i, s in enumerate(x):
-        a = abs(s)
-        env = a + (aa if a > env else ar)*(env - a)
-        g = min(gmax, target/env) if env > 1e-6 else gmax
-        y[i] = s*g
-    return np.tanh(y)
+    12 dB of crest factor; without this it uses a tenth of the gain field.
+
+    Stateful so a live source can be fed block by block: the envelope carries
+    across calls, and feeding the whole clip at once gives the same samples as
+    feeding it in pieces."""
+
+    def __init__(self, target=0.35, attack_ms=5.0, release_ms=150.0,
+                 max_gain_db=21.0):
+        self.aa = math.exp(-1.0/(attack_ms*RATE/1000.0))
+        self.ar = math.exp(-1.0/(release_ms*RATE/1000.0))
+        self.gmax = 10.0**(max_gain_db/20.0)
+        self.target = target
+        self.env = 0.0
+
+    def __call__(self, x):
+        aa, ar, gmax, target = self.aa, self.ar, self.gmax, self.target
+        env = self.env
+        y = np.empty_like(x)
+        for i, s in enumerate(x):
+            a = abs(s)
+            env = a + (aa if a > env else ar)*(env - a)
+            g = min(gmax, target/env) if env > 1e-6 else gmax
+            y[i] = s*g
+        self.env = env
+        return np.tanh(y)
+
+
+def agc(x, **kw):
+    return Agc(**kw)(x)
 
 # ---------------------------------------------------------------- ADPCM
+class Adpcm:
+    """3-bit IMA ADPCM, eight codes packed LSB-first into every three bytes.
+
+    Stateful for the same reason as Agc.  Codes that do not fill a group are
+    held back until the next call, so the byte stream is identical however the
+    input is cut up; flush() pads the last group out."""
+
+    def __init__(self):
+        self.pred = 0
+        self.idx = 0
+        self.codes = []
+
+    def __call__(self, x):
+        q = np.clip(np.round(x*32767.0), -32768, 32767).astype(np.int64)
+        pred, idx, codes, rec = self.pred, self.idx, self.codes, []
+        for s in q:
+            step = STEP[idx]
+            d = int(s) - pred
+            code = 4 if d < 0 else 0
+            d = abs(d)
+            if d >= step:                   # bit <1>
+                code |= 2; d -= step
+            if d >= step >> 1:              # bit <0>
+                code |= 1
+            diff = step >> 2
+            if code & 2: diff += step
+            if code & 1: diff += step >> 1
+            pred = pred - diff if code & 4 else pred + diff
+            pred = max(-32768, min(32767, pred))
+            idx = max(0, min(88, idx + ADJ[code & 3]))
+            codes.append(code); rec.append(pred)
+        self.pred, self.idx = pred, idx
+        return self._take(), np.array(rec, dtype=np.int64)
+
+    def flush(self):
+        if self.codes:
+            while len(self.codes) % 8:      # a near-zero step, never heard
+                self.codes.append(self.codes[-1] & 4)
+        return self._take()
+
+    def _take(self):
+        out = bytearray()
+        n = len(self.codes)//8*8
+        for i in range(0, n, 8):
+            w = 0
+            for k in range(8):
+                w |= self.codes[i+k] << (3*k)
+            out += bytes((w & 255, (w >> 8) & 255, (w >> 16) & 255))
+        del self.codes[:n]
+        return bytes(out)
+
+
 def encode(x):
-    """3-bit IMA ADPCM.  Returns (bytes, reconstruction) with eight codes
-    packed LSB-first into every three bytes."""
-    q = np.clip(np.round(x*32767.0), -32768, 32767).astype(np.int64)
-    pred, idx, codes, rec = 0, 0, [], []
-    for s in q:
-        step = STEP[idx]
-        d = int(s) - pred
-        code = 4 if d < 0 else 0
-        d = abs(d)
-        if d >= step:                       # bit <1>
-            code |= 2; d -= step
-        if d >= step >> 1:                  # bit <0>
-            code |= 1
-        diff = step >> 2
-        if code & 2: diff += step
-        if code & 1: diff += step >> 1
-        pred = pred - diff if code & 4 else pred + diff
-        pred = max(-32768, min(32767, pred))
-        idx = max(0, min(88, idx + ADJ[code & 3]))
-        codes.append(code); rec.append(pred)
-    while len(codes) % 8:                   # whole groups only
-        codes.append(codes[-1] & 4)         # a near-zero step, never heard
-    out = bytearray()
-    for i in range(0, len(codes), 8):
-        w = 0
-        for k in range(8):
-            w |= codes[i+k] << (3*k)
-        out += bytes((w & 255, (w >> 8) & 255, (w >> 16) & 255))
-    return bytes(out), np.array(rec, dtype=np.int64)
+    enc = Adpcm()
+    data, rec = enc(x)
+    return data + enc.flush(), rec
 
 def decode(pk, n):
     """The decoder the C player runs, ported from the analysis script that

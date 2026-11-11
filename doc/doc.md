@@ -1014,6 +1014,45 @@ pass. Resolution is not the limit; the time source and the orbit propagator are.
     sign is only known afterwards. Removing that pedestal from the TX
     frequency would halve the occupied bandwidth and is the obvious next step.
 
+  **And then the microphone, 2026-11-11.** Once the clip is streamed rather
+  than stored, nothing says it has to exist beforehand: `tools/beacon_live.py`
+  encodes the PC's microphone as it is spoken and the radio says it about a
+  tenth to a sixth of a second later - 30 ms of capture, 60 ms of host lead,
+  and what the radio holds. Measured on the air: 20 s of live microphone,
+  **160000 samples of 160000**, and an open-ended burst stopped by hand at
+  9.7 s. The encoder's AGC and ADPCM became stateful classes for this (feeding
+  them in 20 ms blocks gives byte-identical output to one pass, which is
+  checked against the committed clip).
+
+  Three things fought it, none of them obvious from the code:
+
+  - **ffmpeg hands a pipe whole buffers**: 16000 samples every two seconds
+    from the PulseAudio input, whatever `-flush_packets` is set to. The player
+    waits 250 ms for its first bytes, so that alone ended every live burst in
+    `VTX UNDER 0`, and the lump arriving afterwards was then thrown away by
+    the pacing. `arecord` with an explicit period gives 160 samples every
+    20 ms and starts in 25. ffmpeg is still right for a file, where `-re`
+    paces the read.
+  - **The sound card does not stop while the radio keys up.** The backlog has
+    to be drained *after* `VTX TX`, not before, or it is the first thing on
+    the air and the pacing spends the burst discarding it.
+  - **The two clocks differ by 0.6 %**, the radio being the slow one. Pacing
+    against a nominal 3000 B/s walks the lead upwards until it laps the ring:
+    a burst measured clean to 59304 samples of 60000 failed for exactly that.
+    The host now paces against 8000/1.0062 and drops one group - one
+    millisecond - when the backlog still grows, which lands at well under one
+    per cent of the air time.
+
+  Voice TX 3.2 dropped the length cap that came from the flash layout
+  (`BLK_MAX * BLOCK_PAY`, which bounded a *stored* clip and has no business
+  bounding a streamed one) and added `0xFFFFFFFF` as "until I stop". That
+  burst ends by the host going quiet: the player's underrun guard unkeys
+  250 ms later and reports. Dropping DTR does stop it within a millisecond,
+  and the app still watches for it so an unplugged host cannot leave the
+  carrier up, but it is not how to say "finished" - `serial_write` refuses a
+  port no host is holding, so the player would stop without being able to
+  report it.
+
   One caveat on the clip source: the factory voice prompts at 0x14d000, with
   their index at 0x14c000 / 0x14c800 (`App/audio.c:201`), **are gone in this
   firmware** - the overlay-app store spans 0x102000 to 0x160000

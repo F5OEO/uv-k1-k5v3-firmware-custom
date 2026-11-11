@@ -1043,6 +1043,17 @@ pass. Resolution is not the limit; the time source and the orbit propagator are.
     millisecond - when the backlog still grows, which lands at well under one
     per cent of the air time.
 
+  That clock correction belongs in **every** sender, which took a second
+  mistake to learn. `beacon_say.py` was left pacing against a nominal
+  3000 B/s, which is harmless on a short clip and not on a long one: 0.6 % of
+  5.2 s is 94 bytes on top of the lead, enough to lap the ring. The burst
+  still ends in `VTX OK` - the player gets its full sample count - but with a
+  hole in the middle, and the air measurement collapses to 0.26 with windows
+  scattered between -0.11 and 0.78. It was found by trying a male voice,
+  whose clip was 0.6 s longer than the female one that had been passing, and
+  it means the committed 5.33 s beacon had never streamed correctly. Fixed,
+  that clip measures **0.966 and 11.4 dB**.
+
   Voice TX 3.2 dropped the length cap that came from the flash layout
   (`BLK_MAX * BLOCK_PAY`, which bounded a *stored* clip and has no business
   bounding a streamed one) and added `0xFFFFFFFF` as "until I stop". That

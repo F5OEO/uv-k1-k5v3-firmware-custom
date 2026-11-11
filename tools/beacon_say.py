@@ -52,7 +52,13 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 ENCODER = os.path.join(ROOT, "App", "apps", "vtxdata", "encode_clip.py")
 RATE = 8000
-BYTES_PER_S = RATE * 3 / 8          # 3 bits a sample, 3000 B/s
+# The player's sample clock runs about 0.6 % slow against the PC's, measured
+# repeatedly on the air as 1.006.  Pacing against a nominal 3000 B/s walks the
+# lead upwards by that much: harmless on a short clip, but 0.6 % of 5.2 s is
+# 94 bytes on top of LEAD, which laps the radio's ring and silently corrupts
+# everything after it - the burst still ends in VTX OK, with a hole in it.
+CLOCK = 1.0062
+BYTES_PER_S = RATE * 3 / 8 / CLOCK  # what the player actually consumes
 PRIME = 128                         # the first push once the radio is keyed
 CHUNK = 24                          # one write is 8 ms of audio
 # This is a narrow window.  Too little and the player waits, which costs it a

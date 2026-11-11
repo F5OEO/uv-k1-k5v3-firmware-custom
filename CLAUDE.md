@@ -212,4 +212,7 @@ passed to `void app_main(const app_api_t *api)` at blob offset 0.
 - `handoffa`, `handoffb` and `vfotest` are API test apps, and `pllfm`, `voicetx`
   and `vtxdata` are RF experiments; all six are in `ALL_EXCLUDED_APPS` in
   `compile-app.sh`, so `All` skips them and they are buildable only by name.
-  `vtxdata` is built once per block the clip needs, `VTX_CHUNK=1` through `4`.
+  `vtxdata` is built once per block the clip needs, `VTX_CHUNK=0` upwards:
+  `voicetx` carries no clip, so block 0 is a `vtxdata` too. The host tools
+  are `tools/appload.py` (install over serial), `tools/beacon_push.py`
+  (rewrite the blocks) and `tools/beacon_say.py` (stream a clip live).

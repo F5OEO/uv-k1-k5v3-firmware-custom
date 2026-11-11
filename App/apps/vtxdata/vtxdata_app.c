@@ -28,12 +28,13 @@
  * Installing it is the only thing it is for, but a launcher entry has to do
  * something, so it says which block it holds and waits for EXIT.
  *
- * One build is one block, chosen by VTX_CHUNK, and the clip needs all of them:
- * VTX_CHUNK=1 ./build.sh, then 2, 3 and 4 for the clip as it stands, each
- * installed in a slot of its own.  Block 0 is Voice TX's own asset.  The clip
- * itself is read from
- * ../voicetx/clips.json, so there is only ever one copy of it.  Not built by
- * "compile-app.sh All".
+ * One build is one block, chosen by VTX_CHUNK, and the clip needs all of
+ * them: VTX_CHUNK=0 ./build.sh, then 1 up to the last block - Voice TX itself
+ * carries no clip, so block 0 is one of these too.  That is what lets a new
+ * message be pushed without reinstalling the player: rewrite these slots and
+ * leave Voice TX alone.  tools/appload.py does it over the USB serial port.
+ * The clip, its encoder and the voice that made it live here, beside this
+ * app.  Not built by "compile-app.sh All".
  */
 
 #include <stdint.h>

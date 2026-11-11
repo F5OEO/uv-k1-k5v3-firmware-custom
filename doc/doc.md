@@ -962,24 +962,57 @@ pass. Resolution is not the limit; the time source and the orbit propagator are.
   or it refuses to write - and a rendering of what the air does to the clip,
   so a voice can be judged before anything is flashed.
 
-  **Installing an overlay app without a browser, 2026-11-11.** UV Studio needs
-  a human, which rules out a beacon that regenerates its message on a
-  schedule. The firmware already has what that needs: under
+  **Updating the beacon without a browser, 2026-11-11.** A beacon that re-reads
+  the weather every half hour needs the message changed from a script, and UV
+  Studio needs a human. The firmware already has what is needed: under
   `ENABLE_FEAT_F4HWN_OVERLAY_APPS`, `App/app/uart.c` answers **0x0730** (read a
   slot header), **0x0732** (erase the 8 KiB slot), **0x0734** (program bytes at
   slot+offset) and **0x0736** (validate and refresh the menu), over the stock
   Quansheng frame - 0xABCD, a 16-bit length, the body XORed with the 16-byte
   table, CRC-16/XMODEM over the plain body, 0xDCBA - with every write
   authenticated by the session timestamp the radio latches from the 0x0514
-  handshake. A `.app` is header(64) + code + assets, written to the slot
-  offsets `app_overlay.h` gives: 0, 0x1000 and 0x100.
+  handshake. `tools/appload.py` speaks it; `tools/beacon_push.py` wraps the
+  whole update, and one message takes 31 s including the encode. A `.app` is
+  header(64) + code + assets, written to slot offsets 0, 0x1000 and 0x100.
 
-  `tools/appload.py` speaks it - list, install, erase. Measured: 7.7 s to
-  erase a slot, write 4163 B in 128-byte chunks, validate and read the header
-  back. Two conditions, both of them quiet when broken. The radio must be on
-  its normal screen, because a modal overlay app runs its own loop and never
-  calls `UART_ServiceCommands`. And only one program may hold the port, so UV
-  Studio has to be disconnected first.
+  For that to be useful Voice TX had to stop carrying block 0 in its own
+  assets: it now holds no clip at all, every block is a `vtxdata`, and the
+  player is installed once. Block *i* goes to a fixed slot and the slots above
+  the last block are erased, or a leftover block from a longer message would
+  be found by the scan and played after the new one.
+
+  **But the better answer turned out to be not writing flash at all.** A modal
+  app never services the resident command parser, so nothing on the serial
+  link can make the radio transmit; and four sector erases every half hour
+  wear the NOR for no gain. Voice TX 3.1 instead takes the USB port itself
+  (`serial_read`, API level 3) and the host streams the clip at the moment of
+  transmission: `'V','T','X','S'`, the sample count, then the ADPCM. 8 kHz at
+  3 bits is 3 kB/s, nothing is written to flash, and the host owns the timing.
+  `tools/beacon_say.py` is that host.
+
+  Measured the same day, same rig, a 3.91 s clip: **0.965 of correlation,
+  11.3 dB of SNR, 746 Hz rms of deviation**, the 0.5 s windows between 0.92
+  and 0.98 from end to end - the flash path's 0.963 and 11.1 dB. Streaming
+  costs nothing in quality.
+
+  Two things cost an afternoon and are worth recording:
+
+  - **`app_serial_read` flushes on lap, it does not drop the excess.** The
+    resident port keeps 256 bytes; a host that runs further ahead loses
+    everything in flight. A 270-byte lead was measured losing 273 bytes and
+    ending the burst in `VTX UNDER`; 180 bytes is the working figure. And
+    while the app is idle it polls every 20 ms, so a header buried in a larger
+    first burst is flushed before it is ever seen - which is exactly how the
+    first attempt failed, silently, with no carrier at all. The host now sends
+    the 8-byte header alone and waits for `VTX TX`.
+  - **The park's DC pedestal is half the occupied bandwidth**, and its sign is
+    not fixed from one key-up to the next. A burst that parked negative sat on
+    the bottom edge of a 25 kHz DDC window, folded, and measured 0.203 with
+    5030 Hz of apparent deviation while sounding perfect on a real receiver.
+    The measurement, not the transmitter, was wrong. Capture at the full
+    4 Msps and mix down offline, or the window has to follow a pedestal whose
+    sign is only known afterwards. Removing that pedestal from the TX
+    frequency would halve the occupied bandwidth and is the obvious next step.
 
   One caveat on the clip source: the factory voice prompts at 0x14d000, with
   their index at 0x14c000 / 0x14c800 (`App/audio.c:201`), **are gone in this

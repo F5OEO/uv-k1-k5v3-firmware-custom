@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 # VTX Data: one block of the Voice TX clip, carried in this app's asset area.
 #
-#   VTX_CHUNK=1 ./gen_assets.py vtxdata_assets.bin vtxdata_assets.h
+#   VTX_CHUNK=0 ./gen_assets.py vtxdata_assets.bin vtxdata_assets.h
 #
-# Block 0 is Voice TX's own asset, so this app is built once for each of
-# VTX_CHUNK=1, 2, 3 and 4, and each build installed in a slot of its own.
+# Voice TX carries no clip, so every block is one of these, VTX_CHUNK=0 up to
+# however many the message needs, each installed in a slot of its own.
 #
 # The clip is 'Balise du 86, vent nord-est, 25 kilomètres heure, 30 maximum.',
 # spoken by the Piper neural voice fr_FR-upmc-medium, speaker jessica, then
@@ -31,11 +31,11 @@ sys.dont_write_bytecode = True
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 from app_assets import Assets
 
-# There is one clips.json, next to the app that plays it: two copies could
-# drift apart and the blocks would no longer belong to the same clip.
 HERE = os.path.dirname(os.path.abspath(__file__))
-d = json.load(open(os.path.join(HERE, "..", "voicetx", "clips.json")))
-idx = int(os.environ.get("VTX_CHUNK", "1"))
+# VTX_CLIPS lets a host loop build from a freshly encoded clip without writing
+# into the tree; the committed clips.json is the default.
+d = json.load(open(os.environ.get("VTX_CLIPS") or os.path.join(HERE, "clips.json")))
+idx = int(os.environ.get("VTX_CHUNK", "0"))
 payload = base64.b64decode(d["chunks"][idx])
 payload = payload.ljust(d["pay"], b"\0")   # all blocks the same length
 n = d["n"]

@@ -2,7 +2,7 @@
 set -euo pipefail
 
 APP="$(basename "$PWD")"
-APP_NAME="VTX Data ${VTX_CHUNK:-1}"
+APP_NAME="VTX Data ${VTX_CHUNK:-0}"
 APP_VER="1.0"
 APP_API_MIN=3
 APP_VMA=${APP_VMA:-0x20000280}

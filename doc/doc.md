@@ -1354,7 +1354,24 @@ best (§9.3) - and cheap sensors do sit well off nominal: the three carriers
 found on air during the v1 work were at 433.843, 433.918 and 433.965 MHz
 (§9.6).
 
-**Build it on route 2.** Route 1 is not merely tight here, it is closed: on the
+**Built on route 2**, as `App/apps/lacrosserx/` (`LaCrosse RX`, 3.1 KiB of the
+4 KiB overlay): PA4 at 38.4 kHz, `sweep.c`'s DC removal and envelope-tracking
+Schmitt trigger ahead of a PWM slicer that decides each bit on its pulse's
+share of its own 625 µs cell, the digest checked at every bit so the preamble
+is not needed, and a reading shown only after the same frame arrives twice.
+It adds the two untested steps above - `REG_43 = 0x7E2C` and
+`REG_2B |= 0x0700` - as a key-selectable path, with the stock AM one still
+available, plus a +-40 kHz offset on `REG_38/39` and a hunt over it for the
+carrier-offset problem of 9.4. Both polarities of the envelope are
+decoded in parallel, since nothing here fixes the sign at PA4.
+`test/host_dectx141.c` runs the real decoder against this section's channel
+model, the Flipper bench files and the one external vector available
+(`rtl_433_tests` `tests/lacrosse/tx141th-bv2/codes_test.txt`, which pins the
+bit order, the inversion and the digest). **Not yet verified on air**: no
+burst from a real sensor has gone through it, and REG_2B's raw bits remain
+the untested step above.
+
+Route 1 is not merely tight here, it is closed: on the
 sibling BK4819 radio the RSSI register is low-passed over 2.3-3.8 ms and a
 625 µs bit cell survives in it at 0.04 dB, measured against a transmitter 30 dB
 over the noise (§9.6). The PA4 AF tap is therefore the whole value of this

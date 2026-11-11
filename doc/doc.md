@@ -1089,6 +1089,31 @@ pass. Resolution is not the limit; the time source and the orbit propagator are.
   matters, holding the parked carrier in the app for a moment before the first
   sample would cost no payload at all.
 
+  **CTCSS costs nothing, 2026-11-11.** The sub-audible tone does not have to
+  go into the audio at all: the BK4829 generates CTCSS and DCS on `REG_07` and
+  `REG_51`, a generator entirely separate from the Tone 1 DDS this path drives
+  as a baseband DAC on `REG_70/71/72`. The two sum into the modulator without
+  touching each other, and `tx_set_params` already programs whatever the TX
+  VFO has configured (`radio.c:1104`). Voice TX was throwing that away with
+  one line, `bk_write(REG_51, 0)` - right while the gain-field path was being
+  characterised and wanted a bare carrier, wrong for a beacon. Voice TX 3.3
+  keeps it, with key 3 to suppress it.
+
+  Measured with 67.0 Hz set on the VFO, read out of the air rather than out of
+  the configuration: **66.979 Hz over a 5.67 s window** (0.176 Hz bins), which
+  is **-0.03 %** - the chip's control word rounded to the integer. 684 Hz
+  peak of deviation, 484 Hz rms, second harmonic at 0 and third at 2 Hz, and
+  still there under speech at 587 Hz peak while the voice runs 845 Hz rms. The
+  squelch lead-in turned out to be the right measurement window: with no
+  speech in it, the only modulation left *is* the tone.
+
+  Putting the tone in the audio instead would have been worse on four counts:
+  the AGC would modulate its amplitude, which a decoder will not have; 3-bit
+  ADPCM is a differential coder and a low-level 67-250 Hz sine is close to the
+  worst case for it; it would spend 10-15 % of a 7-bit field's deviation; and
+  its frequency would inherit the 0.6 % clock error instead of the chip's
+  synthesiser.
+
   One caveat on the clip source: the factory voice prompts at 0x14d000, with
   their index at 0x14c000 / 0x14c800 (`App/audio.c:201`), **are gone in this
   firmware** - the overlay-app store spans 0x102000 to 0x160000

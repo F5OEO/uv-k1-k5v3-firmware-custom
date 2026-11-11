@@ -214,6 +214,7 @@ static struct {
     const app_api_t *A;
     uint8_t  rep, prevKey, status, denial;
     bool     running, lin, rbSeen, norb;
+    bool     nosub;                /* drop the VFO's CTCSS/DCS for this TX   */
     uint32_t f0, fchip, rd;
     uint8_t  buf[CHUNK];
     uint32_t blk[BLK_MAX];         /* flash address of each block's payload  */
@@ -391,7 +392,16 @@ static bool keyUp(void)
     A->tx_set_params();
     A->tx_carrier(false);
     A->tx_mute(true);
-    A->bk_write(REG_51, 0);          /* after the prepare: it sets sub-audio */
+    /* tx_set_params has just programmed the TX VFO's sub-audible code -
+     * CTCSS on REG_07/REG_51, or DCS - and that generator is a separate one
+     * from the Tone 1 DDS this app drives, so the two sum into the modulator
+     * without touching each other.  Keeping it costs no payload, no deviation
+     * from the 7-bit gain field, and gets the tone frequency from the chip's
+     * own synthesiser rather than through 3-bit ADPCM.  Earlier versions
+     * zeroed REG_51 here, which was right while the gain-field path was being
+     * characterised and wrong for a beacon. */
+    if (g.nosub)
+        A->bk_write(REG_51, 0);
     A->bk_write(REG_70, 0);
 
     g.fchip = ((uint32_t)A->bk_read(REG_39) << 16) | A->bk_read(REG_38);
@@ -608,6 +618,7 @@ static void draw(void)
     o = A->append_u32(o, g.rep);
     if (g.lin)
         o = putS(o, " LIN");
+    o = putS(o, g.nosub ? " NOSUB" : " SUB");
     *o = 0;
     A->print_tiny(s, 0, 17, false, true);
 
@@ -663,7 +674,7 @@ static void draw(void)
     *o = 0;
     A->print_normal(s, 0, 127, 6);
 
-    A->print_tiny("1-2 REPEAT   4 LIN   MENU/PTT TX", 0, 1, true, true);
+    A->print_tiny("1-2 REP  3 SUB  4 LIN  MENU/PTT", 0, 1, true, true);
     A->blit_status();
     A->blit_full();
 }
@@ -742,6 +753,10 @@ static void keys(void)
     case APP_KEY_2:
     case APP_KEY_UP:
         g.rep = (uint8_t)(g.rep < REP_MAX ? g.rep + 1u : 1u);
+        g.status = S_READY;
+        break;
+    case APP_KEY_3:
+        g.nosub = !g.nosub;          /* the VFO's CTCSS/DCS, on or off       */
         g.status = S_READY;
         break;
     case APP_KEY_4:

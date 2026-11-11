@@ -400,6 +400,8 @@ static void transmit(void)
     }
     stopTx();
     g.status = S_DONE;
+    draw();                          /* or the screen reads ON AIR until the
+                                        next key, which is a lie on a TX app */
 }
 
 /* ---- display ----

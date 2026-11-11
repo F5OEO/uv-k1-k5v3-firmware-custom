@@ -3,6 +3,7 @@
 the air path does to it.
 
     ./encode_clip.py voice.wav clips.json "the text, for the record"
+    ./encode_clip.py voice.wav clips.json "..." --lead-ms 1000
 
 It reads an audio file, not text: synthesise first and keep the WAV.  The clip
 in clips.json came from Piper (neural, offline, see doc/doc.md section 8.4):
@@ -36,7 +37,7 @@ source at 8 kHz, the clip as the air delivers it, and the same with a 750 us
 de-emphasis, so a voice can be judged before anything is flashed.  That last
 stage is a model of the receiver, not a measurement.
 """
-import base64, json, math, os, subprocess, sys, wave
+import argparse, base64, json, math, os, subprocess, sys, wave
 import numpy as np
 
 RATE = 8000
@@ -213,9 +214,22 @@ def wav(path, y, rate=RATE):
 
 # ---------------------------------------------------------------- driver
 def main():
-    src, out_json = sys.argv[1], sys.argv[2]
-    txt = sys.argv[3] if len(sys.argv) > 3 else ""
+    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    ap.add_argument("src")
+    ap.add_argument("out_json")
+    ap.add_argument("txt", nargs="?", default="")
+    ap.add_argument("--lead-ms", type=int, default=0,
+                    help="silence before the message, to let a receiver's "
+                         "squelch open on the carrier first (default none)")
+    a = ap.parse_args()
+    src, out_json, txt = a.src, a.out_json, a.txt
     x = agc(trim(load_8k(src)))
+    # After the AGC, so the lead-in stays exact zeros: the coder then holds
+    # its predictor at 0 and the gain field at 64, which is an unmodulated
+    # carrier - what a noise squelch needs, and it needs it before the first
+    # word, not during it.
+    if a.lead_ms:
+        x = np.concatenate([np.zeros(a.lead_ms*RATE//1000), x])
     x = x[:len(x) // 8 * 8]          # whole groups of eight codes
     pk, rec = encode(x)
     n = len(x)

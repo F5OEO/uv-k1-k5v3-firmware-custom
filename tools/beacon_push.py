@@ -65,6 +65,9 @@ def main():
                         "voicetx_app.c (default 6)")
     p.add_argument("--keep", action="store_true",
                    help="leave the work directory for inspection")
+    p.add_argument("--lead-ms", type=int, default=1000,
+                   help="silence before the message so a receiver's squelch "
+                        "opens on the carrier first (default 1000)")
     p.add_argument("--build", default=None,
                    help="how to build one block (default: compile-app.sh, or "
                         "nativebuild/build-native.sh when that exists)")
@@ -74,7 +77,7 @@ def main():
     try:
         clips = os.path.join(work, "clips.json")
         out = run([sys.executable, os.path.join(VTXDATA, "encode_clip.py"),
-                   args.wav, clips, ""])
+                   args.wav, clips, "", "--lead-ms", str(args.lead_ms)])
         print("  " + out.strip().splitlines()[0])
         n = len(json.load(open(clips))["chunks"])
         if n > args.max_blocks:

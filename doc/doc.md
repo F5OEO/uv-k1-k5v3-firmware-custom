@@ -1064,6 +1064,31 @@ pass. Resolution is not the limit; the time source and the orbit propagator are.
   port no host is holding, so the player would stop without being able to
   report it.
 
+  **A second of carrier before the first word, 2026-11-11.** A receiver on
+  noise squelch opens on the carrier, not on the audio, and it does not do it
+  instantly: without a lead-in the first syllable is the part that gets eaten.
+  The three senders therefore take `--lead-ms`, 1000 by default, and put that
+  much silence in front of the message.
+
+  It is inserted **after** the AGC, which is the only place it works: before
+  it, the compressor would lift the silence's own noise floor by up to 21 dB
+  and the lead-in would not be silent at all. After it, the samples are exact
+  zeros, and the coder then holds its predictor at 0 and writes **64 to the
+  gain field for all 8000 of them** - an unmodulated carrier by construction,
+  not by approximation.
+
+  Measured on the air: the burst grows from 4.72 s to 5.715 s, and over the
+  lead-in the deviation is **29.7 Hz rms against the message's 637**, 26 dB
+  down, with a flat spectrum (70 / 66 / 66 / 69 dB across the band) and a mean
+  frequency that holds the park's +2893 Hz over all nine 100 ms slices without
+  moving. That residue is the demodulator's own noise, not modulation.
+
+  `encode_clip.py` takes the option too but defaults to none, so the committed
+  clips.json still reproduces byte for byte. The cost only bites the flash
+  route: a second is 3000 B, 16 % of what five slots hold. If that ever
+  matters, holding the parked carrier in the app for a moment before the first
+  sample would cost no payload at all.
+
   One caveat on the clip source: the factory voice prompts at 0x14d000, with
   their index at 0x14c000 / 0x14c800 (`App/audio.c:201`), **are gone in this
   firmware** - the overlay-app store spans 0x102000 to 0x160000

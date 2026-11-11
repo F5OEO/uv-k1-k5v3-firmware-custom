@@ -126,13 +126,17 @@ def main():
                    help="how long to transmit (default 15)")
     p.add_argument("--open", action="store_true",
                    help="transmit until ctrl-C (needs Voice TX 3.2)")
+    p.add_argument("--lead-ms", type=int, default=1000,
+                   help="silence before the microphone opens, so a receiver's "
+                        "squelch is already open when you speak (default 1000)")
     p.add_argument("--source", help="ALSA capture device (default: default)")
     p.add_argument("--file", help="read this instead of a microphone, in real "
                                   "time, to rehearse the path without one")
     args = p.parse_args()
 
     OPEN = 0xFFFFFFFF
-    n = OPEN if args.open else int(args.seconds*ec.RATE)//8*8
+    lead = args.lead_ms*ec.RATE//1000//8*8
+    n = OPEN if args.open else (int(args.seconds*ec.RATE) + lead)//8*8
     need = None if args.open else n//8*3   # None: until the operator stops
     agc, adpcm = ec.Agc(), ec.Adpcm()
     ff = capture(args)
@@ -168,7 +172,9 @@ def main():
                     return say_no(rx.decode("ascii", "replace").strip(), ff, ser)
         print("  radio: VTX TX - " +
               ("open, ctrl-C to stop" if need is None
-               else f"{n/ec.RATE:.1f} s") + ", speak now")
+               else f"{n/ec.RATE:.1f} s") +
+              (f", {args.lead_ms} ms of carrier first" if lead else "") +
+              ", then speak")
 
         # Keying takes the radio a moment, and the sound card did not stop
         # during it.  Drain again, or that backlog is the first thing on the
@@ -177,7 +183,12 @@ def main():
         # first bytes, so priming well inside that keeps it fed without
         # putting the delay into the latency.
         drain(ff)
+        # The squelch lead-in goes here, between keying and the first word:
+        # exact zeros, which hold the coder's predictor at 0 and the gain
+        # field at 64 - an unmodulated carrier for a receiver to open on.
         q = bytearray()
+        if lead:
+            q += adpcm(np.zeros(lead))[0]
         while len(q) < PRIME_MS*3:      # 3 bytes a millisecond
             raw = ff.stdout.read(BLOCK*4)
             if not raw:

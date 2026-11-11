@@ -75,9 +75,10 @@ except ImportError:
     sys.exit("pyserial is missing: pip install pyserial")
 
 
-def encode(wav, work):
+def encode(wav, work, lead_ms):
     clips = os.path.join(work, "clips.json")
-    r = subprocess.run([sys.executable, ENCODER, wav, clips, ""],
+    r = subprocess.run([sys.executable, ENCODER, wav, clips, "",
+                        "--lead-ms", str(lead_ms)],
                        capture_output=True, text=True)
     if r.returncode:
         sys.exit(f"  encoding failed:\n{r.stdout}{r.stderr}")
@@ -99,11 +100,14 @@ def main():
     p.add_argument("wav", help="the spoken message, any format ffmpeg reads")
     p.add_argument("-p", "--port", default="/dev/ttyACM0")
     p.add_argument("--timeout", type=float, default=30.0)
+    p.add_argument("--lead-ms", type=int, default=1000,
+                   help="silence before the message so a receiver's squelch "
+                        "opens on the carrier first (default 1000)")
     args = p.parse_args()
 
     work = tempfile.mkdtemp(prefix="say_", dir=os.environ.get("TMPDIR"))
     try:
-        n, pay = encode(args.wav, work)
+        n, pay = encode(args.wav, work, args.lead_ms)
     finally:
         import shutil
         shutil.rmtree(work, ignore_errors=True)

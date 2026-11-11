@@ -58,8 +58,13 @@ resonator and sit tens of kHz off nominal: the three carriers found on air
 during the v1 study were at 433.843, 433.918 and 433.965 MHz (`doc/doc.md`
 §9.6), while the AM filter is about 11 kHz wide even wide open.
 
-- The quickest way is the **spectrum analyser**: watch 433.8–434.0 MHz until a
-  burst paints a line, then tune the VFO there.
+- The quickest way is a **spectrum**: watch 433.8–434.0 MHz until a burst
+  paints a line, then tune the VFO there. The resident analyser (F + 5) exists
+  only in an edition built with `ENABLE_SPECTRUM`, which these presets no
+  longer are; the **Spectrum 3D** overlay app does the same job and does it
+  better here, since its ridge keeps twelve sweeps of history on screen — a
+  380 ms burst is still visible seconds after it ended, where a live analyser
+  needs you to be looking at that instant.
 - Otherwise leave **AUTO** on (key 4). It walks 0, ±5, ±10, ±15, ±20 kHz,
   moving on after 90 s without a reading, and stops wherever frames arrive.
   Covering the ladder takes about fourteen minutes, so start it and come back.

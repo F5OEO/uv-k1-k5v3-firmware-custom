@@ -121,7 +121,7 @@
             "inherits": "default",
             "cacheVariables": {
                 "ENABLE_NO_HEAP": true,
-                "ENABLE_SPECTRUM": true,
+                "ENABLE_SPECTRUM": false,
                 "ENABLE_FMRADIO": true,
                 "ENABLE_VOX": true,
                 "ENABLE_AIRCOPY": false,
@@ -216,7 +216,7 @@
             "inherits": "default",
             "cacheVariables": {
                 "ENABLE_NO_HEAP": true,
-                "ENABLE_SPECTRUM": true,
+                "ENABLE_SPECTRUM": false,
                 "ENABLE_FMRADIO": true,
                 "ENABLE_VOX": true,
                 "ENABLE_AIRCOPY": false,

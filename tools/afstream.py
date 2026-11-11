@@ -57,7 +57,10 @@ except ImportError:
 BIAS = 2048
 CHUNK = 512          # the app sends 256 B a half-buffer; read in two of them
 GAP_S = 0.3          # silence longer than this ends a burst
-WARM_S = 1.0         # --play: measure the rate this long before opening aplay
+WARM_S = 2.0         # --play: measure the rate this long before opening aplay.
+                     # One second gave 8000 Hz where two give 7971: the first
+                     # blocks arrive from the kernel's buffer in a rush, and a
+                     # sink opened 0.4 % fast starves every half minute
 
 
 def align(buf: bytes) -> tuple[int, float]:
@@ -218,25 +221,32 @@ def main() -> None:
             if raw:
                 raw.write(out)
                 raw.flush()
+            # The rate so far, this burst included. end_burst() only folds a
+            # burst into active_n/active_t once it is OVER, and a continuous
+            # stream never ends one - reading those here left aplay unopened
+            # for 89 s of perfectly good audio, until the end-of-session
+            # fallback dumped it at the nominal rate.
+            live = (active_n + b_samples - b_first) / \
+                   ((active_t + b_last - b_start) or 1.0)
             if a.play:
                 if player is not None:
                     player.stdin.write(out)
                 else:
                     warm += out
-                    rate = active_n / active_t if active_t > 0 else 0.0
-                    if rate > 0 and len(warm) >= 2 * int(WARM_S * a.rate):
-                        player = spawn_player(int(round(rate)))
+                    if live > 0 and (b_last - b_start) >= WARM_S and \
+                       len(warm) >= 2 * int(WARM_S * a.rate):
+                        player = spawn_player(int(round(live)))
                         player.stdin.write(warm)
                         warm = bytearray()
+                    elif len(warm) > 4 * a.rate:        # hold two seconds
+                        del warm[:len(warm) - 4 * a.rate]
             if a.out:
                 pcm += out
             if a.split:
                 b_pcm += out
             if now - report >= 1.0:
                 report = now
-                rate = (active_n + b_samples - b_first) / \
-                       ((active_t + b_last - b_start) or 1.0)
-                print(f"\r{total} samples, {rate:7.1f} Hz in burst {bursts}, "
+                print(f"\r{total} samples, {live:7.1f} Hz in burst {bursts}, "
                       f"peak-to-peak {peak:4d} / 4096   ", end="", file=sys.stderr)
                 peak = 0
     except KeyboardInterrupt:

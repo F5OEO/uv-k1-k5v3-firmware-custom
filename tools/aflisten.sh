@@ -19,6 +19,7 @@
 #   ./aflisten.sh                  # /dev/ttyACM0, 8 kHz
 #   ./aflisten.sh -r 16000         # the rate selected on the radio (key 1)
 #   ./aflisten.sh -g 4             # four times louder
+#   ./aflisten.sh -s 300           # stop after five minutes
 #   ./aflisten.sh -D null          # the plumbing, silently
 #
 # App/apps/afstream must be running on the radio. Ctrl-C stops.
@@ -40,18 +41,20 @@ PORT=/dev/ttyACM0
 RATE=8000
 GAIN=1
 DEVICE=default
+SECONDS_=0
 
 usage() {
-    sed -n '17,33p' "$0" | sed 's/^# \?//'
+    sed -n '17,34p' "$0" | sed 's/^# \?//'
     exit "${1:-0}"
 }
 
-while getopts "p:r:g:D:h" opt; do
+while getopts "p:r:g:D:s:h" opt; do
     case "$opt" in
     p) PORT=$OPTARG ;;
     r) RATE=$OPTARG ;;
     g) GAIN=$OPTARG ;;
     D) DEVICE=$OPTARG ;;
+    s) SECONDS_=$OPTARG ;;
     h) usage ;;
     *) usage 2 ;;
     esac
@@ -68,7 +71,8 @@ HERE=$(dirname "$(readlink -f "$0")")
 if command -v python3 >/dev/null && [ -f "$HERE/afstream.py" ]; then
     echo "listening on $PORT at $RATE Hz, gain $GAIN, device $DEVICE - Ctrl-C to stop" >&2
     exec python3 -B "$HERE/afstream.py" --play --port "$PORT" --rate "$RATE" \
-                                        --gain "$GAIN" --device "$DEVICE"
+                                        --gain "$GAIN" --device "$DEVICE" \
+                                        --seconds "$SECONDS_"
 fi
 
 echo "no python3: handing the raw codes to aplay, which cannot centre or" >&2

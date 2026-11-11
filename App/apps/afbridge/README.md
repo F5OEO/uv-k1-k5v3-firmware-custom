@@ -123,6 +123,8 @@ receiver.
 | credit write | 92 µs worst case, 0.7 of a sample period |
 | the app's ring under load | 82, 97, 91 against a target of 88 |
 | audio by ear | correct rhythm, no gaps |
+| receive by ear, gate open | continuous, channel hiss |
+| receive by ear, gate closed | silent until the far station transmits |
 
 7970 × (1 − 0.0037) = 7940: the loop runs at the radio's own clock and the
 only remaining error is those 115 stalls, which is six cents of pitch.
@@ -165,4 +167,10 @@ screen at all.
 - 8 kHz only, both ways. AF Stream remains the app for 16, 32 and 38.4 kHz.
 - The gate follows the squelch bit, which `afspectro` saw stay closed on a
   strong signal on the RAW path; the screen shows `SQ?` for that pairing.
-- 92 B of overlay left: anything new here has to pay for itself.
+- 16 B of overlay left: anything new here has to pay for itself.
+- `aflisten.sh` needs two seconds of stream before any sound comes out: it
+  measures the radio's own rate first, because a sink opened at the nominal
+  8000 Hz starves every half minute against a source producing 7970. A
+  transmission shorter than that is only heard when the session ends.
+- The gate, the AF path and the rest are saved on exit, so the defaults above
+  apply to a first launch only.

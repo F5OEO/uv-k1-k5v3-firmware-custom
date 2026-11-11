@@ -1114,6 +1114,15 @@ pass. Resolution is not the limit; the time source and the orbit propagator are.
   its frequency would inherit the 0.6 % clock error instead of the chip's
   synthesiser.
 
+  **The clip in the tree is now the Massogne beacon**, which is the message
+  F5OEO actually wants on the air: "Balise de Massogne, nord-nord-est, 15
+  kilometres heure, 26 maximum.", the same `fr_FR-upmc-medium` jessica voice,
+  5.66 s including its second of squelch lead-in, 18.9 dB of ADPCM, 16965 B
+  over five blocks. The lead-in is baked in, so the committed `clips.json`
+  reproduces from the committed WAV only with `--lead-ms 1000`; the exact
+  command is in `encode_clip.py`'s docstring. Measured streamed, before the
+  lead-in was added: **0.960 and 10.7 dB**.
+
   One caveat on the clip source: the factory voice prompts at 0x14d000, with
   their index at 0x14c000 / 0x14c800 (`App/audio.c:201`), **are gone in this
   firmware** - the overlay-app store spans 0x102000 to 0x160000

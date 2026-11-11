@@ -9,8 +9,8 @@ It reads an audio file, not text: synthesise first and keep the WAV.  The clip
 in clips.json came from Piper (neural, offline, see doc/doc.md section 8.4):
 
     piper -m fr_FR-upmc-medium.onnx -s 0 --sentence-silence 0.0 \
-          -f upmc_jessica.wav <<< "Balise du 86, vent nord-est, 25 kilometres \
-          heure, 30 maximum."
+          -f upmc_jessica.wav <<< "Balise de Massogne, nord-nord-est, \
+          15 kilometres heure, 26 maximum."
 
 at the default length scale.
 
@@ -25,9 +25,11 @@ share-alike, if that ever matters more than the timbre.
 Piper's output is NOT reproducible - VITS draws noise on every run, so the
 same command gives a slightly different render and a different duration.  The
 render that made this clip is therefore kept beside this script as
-upmc_jessica.wav, and re-encoding it reproduces clips.json byte for byte:
+upmc_jessica.wav, and re-encoding it reproduces clips.json byte for byte -
+with --lead-ms 1000, which is not the default and has to be asked for:
 
-    ./encode_clip.py upmc_jessica.wav clips.json "Balise du 86, ..."
+    ./encode_clip.py upmc_jessica.wav clips.json "Balise de Massogne, ..." \
+                     --lead-ms 1000
 
 The chain after that is the one measured on 2026-11-10: 8 kHz, an AGC and a
 tanh limiter so speech's crest factor does not waste the gain field, 3-bit IMA

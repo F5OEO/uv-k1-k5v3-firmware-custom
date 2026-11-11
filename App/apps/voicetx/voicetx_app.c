@@ -45,9 +45,10 @@
  * installed in a slot of its own, block 0 included, so a new message is
  * pushed by rewriting those slots and this player is installed once and left
  * alone - which is what tools/appload.py does over the USB serial port,
- * without UV Studio and without a human.  The clip as it stands is "Balise du
- * 86, vent nord-est, 25 kilometres heure, 30 maximum.", 5.33 s at 8 kHz,
- * 3-bit IMA ADPCM, 18.7 dB, 15987 B over five blocks, spoken by the Piper
+ * without UV Studio and without a human.  The clip as it stands is "Balise de
+ * Massogne, nord-nord-est, 15 kilometres heure, 26 maximum.", 5.66 s at 8 kHz
+ * including a second of silence for the receiver's squelch, 3-bit IMA ADPCM,
+ * 18.9 dB, 16965 B over five blocks, spoken by the Piper
  * neural voice fr_FR-upmc-medium, speaker jessica (vtxdata/encode_clip.py has
  * the whole chain and the licence that voice carries).  The store is a plain
  * array - 0x102000 +

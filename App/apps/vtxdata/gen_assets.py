@@ -6,11 +6,14 @@
 # Voice TX carries no clip, so every block is one of these, VTX_CHUNK=0 up to
 # however many the message needs, each installed in a slot of its own.
 #
-# The clip is 'Balise du 86, vent nord-est, 25 kilomètres heure, 30 maximum.',
-# spoken by the Piper neural voice fr_FR-upmc-medium, speaker jessica, then
-# trimmed, 8 kHz, AGC (5 ms / 150 ms, up to +21 dB, target 0.35) and a tanh
-# limiter, then 3-bit IMA ADPCM: 42632 samples, 5.33 s, 18.7 dB, 15987 B over
-# 5 blocks of 3831. ../voicetx/encode_clip.py does all of it.
+# The clip is 'Balise de Massogne, nord-nord-est, 15 kilomètres heure, 26
+# maximum.', spoken by the Piper neural voice fr_FR-upmc-medium, speaker
+# jessica, then trimmed, 8 kHz, a second of silence so a receiver's squelch
+# opens on the carrier first, AGC (5 ms / 150 ms, up to +21 dB, target 0.35)
+# and a tanh limiter, then 3-bit IMA ADPCM: 45240 samples, 5.66 s, 18.9 dB,
+# 16965 B over 5 blocks of 3831. encode_clip.py beside this file does all of
+# it, and the exact command is in its docstring - the lead-in is not the
+# default, so it has to be asked for.
 #
 # A block is 8 header bytes - 'V','T','X', the block index, then the total
 # sample count little-endian - followed by its share of the stream. Voice TX

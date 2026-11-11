@@ -57,6 +57,7 @@ except ImportError:
 BIAS = 2048
 CHUNK = 512          # the app sends 256 B a half-buffer; read in two of them
 GAP_S = 0.3          # silence longer than this ends a burst
+WARM_S = 1.0         # --play: measure the rate this long before opening aplay
 
 
 def align(buf: bytes) -> tuple[int, float]:
@@ -96,17 +97,26 @@ def main() -> None:
         a.out = "af.wav"
 
     ser = Serial(a.port, 115200, timeout=0.5)
-    ser.dtr = True                      # the app only sends with DTR asserted
+    try:
+        ser.dtr = True                  # the app only sends with DTR asserted
+    except OSError as exc:              # a pty or a port with no modem lines
+        print(f"cannot assert DTR on {a.port} ({exc}); carrying on", file=sys.stderr)
     ser.reset_input_buffer()
 
     raw = None
     if a.raw:
         raw = sys.stdout.buffer if a.raw == "-" else open(a.raw, "wb")
+    # --play opens aplay only once the rate has been measured: the radio's RC
+    # clock runs a few tenths of a percent off nominal, and a sink consuming
+    # 8000 Hz from a source producing 7963 starves every few seconds.
     player = None
-    if a.play:
-        player = subprocess.Popen(
+    warm = bytearray()
+
+    def spawn_player(rate: int):
+        print(f"aplay at {rate} Hz", file=sys.stderr)
+        return subprocess.Popen(
             ["aplay", "-q", "-D", a.device, "-t", "raw", "-f", "S16_LE",
-             "-c", "1", "-r", str(a.rate)], stdin=subprocess.PIPE)
+             "-c", "1", "-r", str(rate)], stdin=subprocess.PIPE)
 
     pcm = bytearray()
     pending = b""
@@ -181,6 +191,13 @@ def main() -> None:
             n = len(pending) // 2
             codes = struct.unpack_from(f"<{n}H", pending, 0)
             pending = pending[2 * n:]
+            # AF Bridge mixes control halfwords into the same pipe; audio
+            # never has its top nibble set, so anything >= 0x1000 is not a
+            # sample. Masking it would make a near-full-scale spike.
+            codes = [v for v in codes if v < 0x1000]
+            n = len(codes)
+            if not n:
+                continue
             total += n
             if b_start is None or (b_last is not None and now - b_last > GAP_S):
                 end_burst()
@@ -192,7 +209,6 @@ def main() -> None:
             out = bytearray(2 * n)
             lo = hi = BIAS
             for i, v in enumerate(codes):
-                v &= 0x0FFF
                 if v < lo: lo = v
                 if v > hi: hi = v
                 s16 = int((v - BIAS) * 16 * a.gain)
@@ -202,8 +218,16 @@ def main() -> None:
             if raw:
                 raw.write(out)
                 raw.flush()
-            if player:
-                player.stdin.write(out)
+            if a.play:
+                if player is not None:
+                    player.stdin.write(out)
+                else:
+                    warm += out
+                    rate = active_n / active_t if active_t > 0 else 0.0
+                    if rate > 0 and len(warm) >= 2 * int(WARM_S * a.rate):
+                        player = spawn_player(int(round(rate)))
+                        player.stdin.write(warm)
+                        warm = bytearray()
             if a.out:
                 pcm += out
             if a.split:
@@ -219,6 +243,9 @@ def main() -> None:
         pass
     finally:
         ser.close()
+        if a.play and player is None and warm:      # too short to measure
+            player = spawn_player(a.rate)
+            player.stdin.write(warm)
         if player:
             player.stdin.close()
             player.wait()

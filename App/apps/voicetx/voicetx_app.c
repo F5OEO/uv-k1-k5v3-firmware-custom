@@ -42,30 +42,51 @@
  * the absolute address the scan below works out.
  *
  * The clip is "Balise du 86, vent nord-est, 25 kilometres heure, 30
- * maximum." - 3.63 s at 8 kHz, 3-bit IMA ADPCM, 14.8 dB, 10878 B.  One
- * asset area holds 3840 B, so the clip does not fit in one: it is cut into
- * three blocks and the other two are carried by App/apps/vtxdata, installed
- * in slots of their own.  The store is a plain array - 0x102000 +
+ * maximum." - 5.33 s at 8 kHz, 3-bit IMA ADPCM, 18.7 dB, 15987 B, spoken by
+ * the Piper neural voice fr_FR-upmc-medium, speaker jessica (see
+ * encode_clip.py for the whole chain and for the licence that voice carries).
+ * One asset area holds 3840 B, so the clip does not fit in one: it is cut
+ * into five blocks and the other four are carried by App/apps/vtxdata,
+ * installed in slots of their own.  The store is a plain array - 0x102000 +
  * slot * 0x2000, assets at +0x100 (app_overlay.h:37) - and sys_storage_read
  * addresses it directly, so at startup this app SCANS the 48 slots for the
  * 8-byte signature 'V','T','X',index followed by the total sample count, and
  * plays the blocks in index order whatever slots they landed in.  3831 B of
  * payload is 1277 whole groups of 8 codes, so a group never straddles two
  * blocks, and every block is padded to that length.  The padding is an
- * unexplained fix, not a diagnosis: while the last block was short (3216 B
- * against 3831) block 2 came out wrong on the air from its first sample,
- * 0.396 and 0.385 of correlation on two bursts, and padding gave 0.881.  The
- * player cannot read past the clip: it stops on the sample count, 29008
- * samples is exactly 3216 B into block 2, and the bytes beyond that are
- * prefetched by the 15-byte read and never decoded.  So the cause is still
- * open; the padding stays because it is what the passing burst ran.
+ * unexplained fix, not a diagnosis: with an earlier clip whose last block was
+ * short (3216 B against 3831) that block came out wrong on the air from its
+ * first sample, 0.396 and 0.385 of correlation on two bursts, and padding
+ * gave 0.881.  The player cannot read past a clip - it stops on the sample
+ * count, which fell exactly on byte 3216 of that block, and the bytes beyond
+ * were only prefetched by the 15-byte read - so the cause is still open and
+ * the padding stays because it is what the passing burst ran.
  *
- * Measured on 2026-11-10, received on a Maia SDR and correlated block by
- * block against the gain sequence written: 0.926, 0.931, 0.881, with the
- * joins landing within a tenth of a millisecond of where the clock says they
- * should - 0.912 over the whole clip, 6.9 dB of SNR, 761 Hz rms of
- * deviation.  The on-screen K values are the three blocks' byte sums as the
- * flash holds them, against 19866 / 62894 / 13308 from the encoder.
+ * The on-screen K values are the blocks' byte sums as the flash holds them,
+ * against 10359 / 60992 / 63898 / 60285 / 2190 from the encoder, which is
+ * how an install is checked without taking the radio apart.
+ *
+ * Measured on the air on 2026-11-11, a UV-K1 at 143.98750 MHz received on a
+ * Maia SDR at 25 ksps and correlated against the gain sequence written:
+ * 0.946, 0.952, 0.963 and 0.963 on the four full blocks fitted separately,
+ * 708 Hz rms of deviation, the joins regular to a tenth of a millisecond; and
+ * at that alignment 0.963 over the whole 5.36 s, 11.1 dB of SNR, with the
+ * 0.5 s windows running 0.93 to 0.99 from one end to the other.  The
+ * espeak-ng clip this replaced measures 0.946 and 9.3 dB the same way, so the
+ * neural voice is 1.8 dB better on the air as well as better in the ear - the
+ * ADPCM also has an easier job with it, 18.7 dB against 14.8.
+ *
+ * Two traps in measuring that, both of which bit:
+ *   - Do NOT fit the clock by sliding the whole clip against the burst.  With
+ *     the reference nearly as long as the recording, numpy's "valid"
+ *     correlation leaves 314 lags where the true offset is 330, so the search
+ *     buys a reachable lag with a wrong clock and reports 0.806.  Fit on the
+ *     blocks, then correlate the whole clip at that alignment.
+ *   - Cut the last 30 ms.  stopTx drops the carrier, the phase runs away as
+ *     the envelope collapses and the demodulator makes one 13 kHz spike
+ *     against 681 Hz rms.  Inside the 0.22 s last block that single spike
+ *     reads as 0.491 instead of 0.975, which looks exactly like the
+ *     short-block fault above and is not it.
  *
  * Eight codes are packed LSB-first into every three bytes.  The decoder's
  * predictor is 16-bit and its top 7 bits are the gain: 64 + (pred >> 9).
@@ -87,11 +108,12 @@
  * because speech's 12 dB of crest factor otherwise uses a tenth of the gain
  * field).  An earlier 0.825 s clip at 8 kHz and 4 bits reached 0.945.
  *
- * One gap worth knowing about: clips.json holds the encoded stream, and the
- * encoder that produced it - espeak-ng, then the AGC and limiter, then the
- * ADPCM - was a throwaway script and is NOT in the tree.  gen_assets.py
- * records the recipe and its settings, but another message means writing that
- * encoder again; the numbers above are what to aim for when checking it.
+ * clips.json holds the encoded stream and encode_clip.py, next to it, is what
+ * produces it from an audio file: the trim, the AGC and limiter, the ADPCM and
+ * the block split, with the player's own decoder as a self-check - the
+ * encoder's reconstruction must equal sample for sample what the decoder
+ * yields, or it refuses to write.  It also renders what the air does to the
+ * clip, so a voice can be judged before anything is flashed.
  *
  * Two things that measurement settled.  The gain law is AFFINE - deviation
  * proportional to (gain + 13.6) - so its offset is pure DC and the audio is
@@ -131,7 +153,7 @@
 /* The app store, as app_overlay.h:37 lays it out. */
 #define SLOT_N      48u
 #define SLOT_ASSETS(n)  (0x102000u + (uint32_t)(n) * 0x2000u + 0x100u)
-#define BLK_MAX     4u
+#define BLK_MAX     6u   /* 6 x 1.277 s = 7.6 s; the clip needs 5      */
 #define REP_MAX   5u
 
 #define F_PLAUS_MIN 1800000u
@@ -445,11 +467,12 @@ static void draw(void)
     *o = 0;
     A->print_tiny(s, 0, 25, false, true);
 
-    o = s;                              /* a checksum of each block in flash */
-    for (uint8_t i = 0; i < g.nblk && i < 3u; i++) {
-        *o++ = 'K';
-        o = A->append_u32(o, g.sum[i]);
+    o = putS(s, "K");                   /* a checksum of each block in flash */
+    for (uint8_t i = 0; i < g.nblk && i < BLK_MAX; i++) {
+        if ((o - s) + 6 > 31)           /* 3x5 font, 4 px a char, 128 px     */
+            break;
         *o++ = ' ';
+        o = A->append_u32(o, g.sum[i]);
     }
     *o = 0;
     A->print_tiny(s, 0, 33, false, true);

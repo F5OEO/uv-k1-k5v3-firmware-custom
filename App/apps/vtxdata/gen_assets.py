@@ -3,10 +3,14 @@
 #
 #   VTX_CHUNK=1 ./gen_assets.py vtxdata_assets.bin vtxdata_assets.h
 #
+# Block 0 is Voice TX's own asset, so this app is built once for each of
+# VTX_CHUNK=1, 2, 3 and 4, and each build installed in a slot of its own.
+#
 # The clip is 'Balise du 86, vent nord-est, 25 kilomètres heure, 30 maximum.',
-# espeak-ng voice fr rate 215, trimmed, 8 kHz, AGC (5 ms / 150 ms, up to
-# +21 dB, target 0.35) and a tanh limiter, then 3-bit IMA ADPCM: 29008 samples,
-# 3.63 s, 14.8 dB, 10878 B over 3 blocks of 3831.
+# spoken by the Piper neural voice fr_FR-upmc-medium, speaker jessica, then
+# trimmed, 8 kHz, AGC (5 ms / 150 ms, up to +21 dB, target 0.35) and a tanh
+# limiter, then 3-bit IMA ADPCM: 42632 samples, 5.33 s, 18.7 dB, 15987 B over
+# 5 blocks of 3831. ../voicetx/encode_clip.py does all of it.
 #
 # A block is 8 header bytes - 'V','T','X', the block index, then the total
 # sample count little-endian - followed by its share of the stream. Voice TX

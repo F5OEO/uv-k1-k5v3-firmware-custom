@@ -877,8 +877,10 @@ pass. Resolution is not the limit; the time source and the orbit propagator are.
   heure, 30 maximum.", 3.63 s at 8 kHz and 3 bits, 14.8 dB, 10878 B over three
   blocks - went out in one burst. Correlated block by block against the gain
   sequence written: **0.926, 0.931, 0.881**, with each join landing within a
-  tenth of a millisecond of where the clock puts it; **0.912 over the whole
-  clip, 6.9 dB of SNR, 761 Hz rms of deviation**.
+  tenth of a millisecond of where the clock puts it; 0.912 over the whole
+  clip, 6.9 dB of SNR, 761 Hz rms of deviation. (That whole-clip figure is an
+  underestimate - see the measurement traps further down; the same recording
+  is **0.946 and 9.3 dB** when it is measured properly.)
 
   One unexplained result worth recording. While the last block was short -
   3216 B against the 3831 the other two hold - block 2 came out wrong from its
@@ -895,6 +897,70 @@ pass. Resolution is not the limit; the time source and the orbit propagator are.
   rather than the padded one, so they never spoke to those bytes either. The
   padding is kept because it is what the passing burst ran, and because it
   makes every block identical in length; it is not a diagnosis.
+
+  **A better voice, 2026-11-11.** espeak-ng is a formant synthesiser and
+  sounds it. Piper (neural VITS, ONNX, offline on the CPU, about a second to
+  render a sentence) was tried against it on the same chain - 8 kHz, AGC and
+  limiter, 3-bit ADPCM, the 7-bit gain field - and the French voices it
+  offers were judged on the simulated air path rather than on the raw render.
+  F5OEO picked **`fr_FR-upmc-medium`, speaker jessica**, the female one.
+
+  | voice | duration | blocks | ADPCM |
+  |---|---|---|---|
+  | espeak-ng `fr` rate 215 | 3.66 s | 3 | 15.1 dB |
+  | `fr_FR-siwis-medium`, female, CC-BY 4.0 | 4.95 s | 4 | 15.8 dB |
+  | **`fr_FR-upmc-medium` jessica**, female, CC-BY-**SA** 4.0 | 5.33 s | 5 | 18.7 dB |
+  | `fr_FR-upmc-medium` pierre, male | 5.52 s | 5 | 17.1 dB |
+
+  The coder is not what separates them - 15.1 against 18.7 dB - the voice is.
+  Note the licences: siwis is CC-BY, upmc is CC-BY-SA, which is a question to
+  settle before an encoded clip of it is committed to an Apache-2.0 tree.
+
+  Five blocks needed `BLK_MAX` raised from 4 to 6 (28 B of arrays become 42)
+  and the on-screen checksum line bounded to the 31 characters the 3x5 font
+  fits. The clip then occupies five slots: Voice TX and four VTX Data.
+
+  **Measured on the air the same day**, same rig, 5.33 s in one burst, each
+  block fitted on its own: **0.946, 0.952, 0.963, 0.963** on the four full
+  blocks, 708 Hz rms of deviation, the joins regular to a tenth of a
+  millisecond. At that alignment the whole clip gives **0.963, 11.1 dB of
+  SNR**, and the 0.5 s windows run 0.93 to 0.99 from one end to the other.
+
+  Two things have to be done right to get those numbers, and both were got
+  wrong first:
+
+  - **Do not fit the clock by sliding the whole clip against the burst.** When
+    the reference is nearly as long as the recording, `numpy`'s `valid`
+    correlation leaves 314 lags where the true offset is 330, so the search
+    buys a reachable lag with a wrong clock - 1.00614 instead of 1.00627 - and
+    reports 0.806 for a clip that is really at 0.963. Fit on the blocks, then
+    correlate the whole clip at that alignment.
+  - **Cut the last 30 ms.** `stopTx` drops the carrier, the phase runs away as
+    the envelope collapses, and the demodulator produces one spike of
+    **13 kHz against 681 Hz rms**. Inside a 0.22 s window that single spike
+    takes the last block from 0.975 down to 0.491 - which looked exactly like
+    the short-block fault above, and is not.
+
+  Re-measuring the espeak burst the same way puts the comparison on one
+  method:
+
+  | | espeak, 3.63 s | upmc jessica, 5.33 s |
+  |---|---|---|
+  | per block, fitted separately | 0.926 / 0.931 / 0.881 | 0.946 / 0.952 / 0.963 / 0.963 |
+  | whole clip, less the ramp-down | **0.946**, 9.3 dB | **0.963**, 11.1 dB |
+
+  So **the 0.912 and 6.9 dB recorded above for the espeak clip are too low**:
+  that figure came from the whole-clip search and kept the ramp-down in it.
+  The same recording, measured properly, is 0.946 and 9.3 dB. The neural voice
+  is still the better of the two on the air, by 1.8 dB, but by less than the
+  first numbers suggested - and the ear, not the correlation, is what chose
+  it.
+
+  The encoder is now in the tree as `App/apps/voicetx/encode_clip.py`: audio
+  file to `clips.json`, with the player's own decoder as a self-check - the
+  encoder's reconstruction must equal the decoder's output sample for sample
+  or it refuses to write - and a rendering of what the air does to the clip,
+  so a voice can be judged before anything is flashed.
 
   One caveat on the clip source: the factory voice prompts at 0x14d000, with
   their index at 0x14c000 / 0x14c800 (`App/audio.c:201`), **are gone in this

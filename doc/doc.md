@@ -962,6 +962,25 @@ pass. Resolution is not the limit; the time source and the orbit propagator are.
   or it refuses to write - and a rendering of what the air does to the clip,
   so a voice can be judged before anything is flashed.
 
+  **Installing an overlay app without a browser, 2026-11-11.** UV Studio needs
+  a human, which rules out a beacon that regenerates its message on a
+  schedule. The firmware already has what that needs: under
+  `ENABLE_FEAT_F4HWN_OVERLAY_APPS`, `App/app/uart.c` answers **0x0730** (read a
+  slot header), **0x0732** (erase the 8 KiB slot), **0x0734** (program bytes at
+  slot+offset) and **0x0736** (validate and refresh the menu), over the stock
+  Quansheng frame - 0xABCD, a 16-bit length, the body XORed with the 16-byte
+  table, CRC-16/XMODEM over the plain body, 0xDCBA - with every write
+  authenticated by the session timestamp the radio latches from the 0x0514
+  handshake. A `.app` is header(64) + code + assets, written to the slot
+  offsets `app_overlay.h` gives: 0, 0x1000 and 0x100.
+
+  `tools/appload.py` speaks it - list, install, erase. Measured: 7.7 s to
+  erase a slot, write 4163 B in 128-byte chunks, validate and read the header
+  back. Two conditions, both of them quiet when broken. The radio must be on
+  its normal screen, because a modal overlay app runs its own loop and never
+  calls `UART_ServiceCommands`. And only one program may hold the port, so UV
+  Studio has to be disconnected first.
+
   One caveat on the clip source: the factory voice prompts at 0x14d000, with
   their index at 0x14c000 / 0x14c800 (`App/audio.c:201`), **are gone in this
   firmware** - the overlay-app store spans 0x102000 to 0x160000

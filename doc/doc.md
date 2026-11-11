@@ -262,7 +262,10 @@ GPIO4 (VHF LNA), GPIO5 (red LED) and GPIO6 (green LED) via `REG_33`
    on-board timekeeping is good enough for the Doppler options 2 and 3 in §8.3.
    One read of `RCC->CR`/`CFGR` settles it.
 8. **Does a sub-kHz retune re-lock without the REG_30 toggle, and is the toggle
-   audible?** Bounds how smooth any Doppler correction can be (§8.4).
+   audible?** **Answered on hardware - see §8.4.** No: a +-1 kHz write to
+   REG_38/39 does nothing at all until REG_30 is toggled, and toggling bit 15
+   alone suffices. The toggle blanks the carrier hard for 108 us - audible as
+   one click per retune - which is nothing for Doppler and fatal for direct FM.
 9. **What does one BK4819 register read actually cost, and how often does RSSI
    really update?** **Answered on the sibling BK4819 radio - see §9.6 - and the
    answer kills route 1 there.** RSSI is low-passed with a 2.3-3.8 ms time
@@ -759,6 +762,69 @@ pass. Resolution is not the limit; the time source and the orbit propagator are.
 - **Whether a small retune re-locks cleanly**, i.e. whether the REG_30 toggle is
   needed for a sub-kHz step and whether it mutes or clicks. Hence the threshold
   approach above rather than continuous retuning.
+
+  **Answered on hardware, 2026-11-10.** `App/apps/pllfm` v0.7 on a UV-K1,
+  143.98750 MHz, low power, 3 s bursts, received on a Maia SDR (ANTSDR E200)
+  recording 12-bit IQ at 25 ksps through its DDC, centred on the carrier and
+  demodulated offline. One burst per mode:
+
+  | burst | peak deviation at 300 Hz | retune seen |
+  |---|---|---|
+  | `TONE` (REG_70/71 generator, gain 66) | **~3.0 kHz** (2155 Hz rms) | - |
+  | `PLL` (REG_38 rewritten at 9.6 kHz) | **1.3 Hz**, i.e. the noise floor | - |
+  | `STEP` (REG_38, REG_39 only when it moves) | - | **none**, flat to 8 Hz rms |
+  | `STEP39` (REG_38 then REG_39, every step) | - | **none**, flat to 10 Hz rms |
+  | `STEP+T` (+ REG_30 0x0000 then 0xC3FA) | - | **yes, a clean +-1000 Hz square at 2 Hz** |
+  | `STEP+C` (+ REG_30 bit 15 only, 0x43FA then 0xC3FA) | - | **yes, identical** |
+
+  So **a frequency write does nothing until the REG_30 toggle**, and
+  **toggling bit 15 alone is enough** - the PLL and the PA need not be powered
+  down, which `spectrum.c SetF` and CW Keyer do not exploit. The carrier is on
+  frequency (+1067 Hz, the two references' combined error).
+
+  **The toggle costs a hard carrier blanking of 108 us.** Re-recorded at
+  250 ksps (4 us per sample) to resolve it: at each of the 11 edges the
+  envelope collapses to ~1 % of nominal and stays there **104-112 us** (mean
+  108 us below 20 %, 108 us below 50 % - the fall and rise are each under one
+  sample). It is a real dropout, not a filter artifact, and on an FM receiver
+  it is **one click per retune**. There is no settling delay in the test code,
+  so that is the chip's own figure, not `PLL_LOCK_MS`; the new frequency is
+  correct on the first sample after the gap.
+
+  **Consequence for direct FM: dead, whatever the bus.** 8 kHz audio is a
+  125 us sample period and the carrier would be off 108 us of it. Even at
+  2 kHz it is off a fifth of the time. This does not depend on the resident
+  `bk_write` costing 80 us (3833 cycles, measured) - an app bit-banging the
+  three-wire bus itself could not help, because the blanking is the chip's.
+  **Consequence for Doppler: fine.** One retune every few seconds costs one
+  108 us click, which is what §8.3 needs and nothing more.
+
+  **But audio on transmit is possible by another road, measured the same day.**
+  `aprstx` already rewrites REG_70 and REG_71 every 833 us without ever
+  touching REG_30 (`aprstx_app.c:290`), so the tone registers do take effect in
+  flight. Four more bursts, same rig:
+
+  | burst | result |
+  |---|---|
+  | `GTONE` gain stepped 126/2 at 2 Hz, DDS running at 300 Hz | deviation switches **5850 / 539 Hz rms**, inside one 50 ms block: **a gain write is live and instantaneous** |
+  | `GDC` gain stepped, REG_71 written 0 before enabling | **nothing**, +-1 Hz - the accumulator was already at zero |
+  | `GPARK` DDS run at 32 Hz, 8 ms (a quarter period), then REG_71 = 0 | carrier parks at **+6892 Hz** (gain 126) / **+769 Hz** (gain 2) of DC |
+  | `GAIN` the sine written into the gain field at Fs, phase parked first | **298 Hz at 3.4 kHz peak deviation**; and at Fmod 1 kHz, Fs 8 kHz, N 8: **993 Hz at 3.2 kHz** |
+
+  **A zero frequency word freezes the DDS phase, it does not clear it.** Park
+  the phase at the sine's peak and REG_70 `<14:8>` becomes a **7-bit baseband
+  DAC into the FM modulator**: one 80 us register write per sample, no REG_30,
+  no blanking, and 8 kHz - the voice sample rate of `App/driver/voice.c` - is
+  reached with 64 % of the time on the bus. `TONE` at gain 66 gives 3.05 kHz
+  of deviation; the DAC gives 3.2-3.4 kHz. **This is the route to playing a
+  clip on transmit.**
+
+  Its costs: the output is unipolar, so the carrier rides a DC pedestal of
+  about 3.5 kHz that eats headroom and should be taken out of the TX
+  frequency; the parked phase lands on either peak of the sine, so that
+  pedestal's sign is not guaranteed from one key-up to the next and the audio
+  may come out inverted (no ear hears that); and the park has to be redone at
+  every key-up.
 - **Reference calibration**, per §8.1 - without it the correction lands on a
   fixed error larger than itself.
 

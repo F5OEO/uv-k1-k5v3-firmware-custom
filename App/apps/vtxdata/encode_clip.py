@@ -9,8 +9,8 @@ It reads an audio file, not text: synthesise first and keep the WAV.  The clip
 in clips.json came from Piper (neural, offline, see doc/doc.md section 8.4):
 
     piper -m fr_FR-upmc-medium.onnx -s 0 --sentence-silence 0.0 \
-          -f upmc_jessica.wav <<< "Balise de Massogne, nord-nord-est, \
-          15 kilometres heure, 26 maximum."
+          -f upmc_jessica.wav <<< "Balise de Bonneuil-Matours, \
+          15 kilometres heure, nord-nord-est, 26 kilometres heure maximum."
 
 at the default length scale.
 
@@ -28,7 +28,7 @@ render that made this clip is therefore kept beside this script as
 upmc_jessica.wav, and re-encoding it reproduces clips.json byte for byte -
 with --lead-ms 1000, which is not the default and has to be asked for:
 
-    ./encode_clip.py upmc_jessica.wav clips.json "Balise de Massogne, ..." \
+    ./encode_clip.py upmc_jessica.wav clips.json "Balise de Bonneuil-..." \
                      --lead-ms 1000
 
 The chain after that is the one measured on 2026-11-10: 8 kHz, an AGC and a

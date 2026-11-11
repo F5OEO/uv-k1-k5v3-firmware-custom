@@ -46,9 +46,10 @@
  * pushed by rewriting those slots and this player is installed once and left
  * alone - which is what tools/appload.py does over the USB serial port,
  * without UV Studio and without a human.  The clip as it stands is "Balise de
- * Massogne, nord-nord-est, 15 kilometres heure, 26 maximum.", 5.66 s at 8 kHz
- * including a second of silence for the receiver's squelch, 3-bit IMA ADPCM,
- * 18.9 dB, 16965 B over five blocks, spoken by the Piper
+ * Bonneuil-Matours, 15 kilometres heure, nord-nord-est, 26 kilometres heure
+ * maximum.", which is what tools/beacon_wind.sh says for "15 NNE 26": 6.49 s
+ * at 8 kHz including a second of silence for the receiver's squelch, 3-bit
+ * IMA ADPCM, 18.8 dB, 19470 B over six blocks, spoken by the Piper
  * neural voice fr_FR-upmc-medium, speaker jessica (vtxdata/encode_clip.py has
  * the whole chain and the licence that voice carries).  The store is a plain
  * array - 0x102000 +
@@ -160,7 +161,9 @@
 /* The app store, as app_overlay.h:37 lays it out. */
 #define SLOT_N      48u
 #define SLOT_ASSETS(n)  (0x102000u + (uint32_t)(n) * 0x2000u + 0x100u)
-#define BLK_MAX     6u   /* 6 x 1.277 s = 7.6 s; the clip needs 5      */
+#define BLK_MAX     8u   /* 8 x 1.277 s = 10.2 s; a wind reading with a
+                            long direction and its squelch lead-in already
+                            fills six, so six was no margin at all       */
 #define REP_MAX   5u
 
 #define F_PLAUS_MIN 1800000u

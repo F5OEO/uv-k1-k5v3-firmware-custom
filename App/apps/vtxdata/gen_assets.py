@@ -6,14 +6,16 @@
 # Voice TX carries no clip, so every block is one of these, VTX_CHUNK=0 up to
 # however many the message needs, each installed in a slot of its own.
 #
-# The clip is 'Balise de Massogne, nord-nord-est, 15 kilomètres heure, 26
-# maximum.', spoken by the Piper neural voice fr_FR-upmc-medium, speaker
-# jessica, then trimmed, 8 kHz, a second of silence so a receiver's squelch
-# opens on the carrier first, AGC (5 ms / 150 ms, up to +21 dB, target 0.35)
-# and a tanh limiter, then 3-bit IMA ADPCM: 45240 samples, 5.66 s, 18.9 dB,
-# 16965 B over 5 blocks of 3831. encode_clip.py beside this file does all of
-# it, and the exact command is in its docstring - the lead-in is not the
-# default, so it has to be asked for.
+# The clip is 'Balise de Bonneuil-Matours, 15 kilomètres heure, nord-nord-est,
+# 26 kilomètres heure maximum.', which is exactly what tools/beacon_wind.sh
+# says for `15 NNE 26` - the committed clip is a sample of the real thing
+# rather than a hand-written one. Spoken by the Piper neural voice
+# fr_FR-upmc-medium, speaker jessica, then trimmed, 8 kHz, a second of silence
+# so a receiver's squelch opens on the carrier first, AGC (5 ms / 150 ms, up
+# to +21 dB, target 0.35) and a tanh limiter, then 3-bit IMA ADPCM: 51920
+# samples, 6.49 s, 18.8 dB, 19470 B over 6 blocks of 3831. encode_clip.py
+# beside this file does all of it, and the exact command is in its docstring -
+# the lead-in is not the default, so it has to be asked for.
 #
 # A block is 8 header bytes - 'V','T','X', the block index, then the total
 # sample count little-endian - followed by its share of the stream. Voice TX

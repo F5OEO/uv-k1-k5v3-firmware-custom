@@ -1256,8 +1256,16 @@ Routes 1 and 2 are both CPU-bound polling loops, so an app picks one.
    **What is still untested** is only the rest of the way to §7.1's ceiling.
    Against `0x3028`, the AIS value `0x7E2C` (11 kHz) differs in the RF filter
    field `<14:12>`, the weak-RF field `<11:9>` and bit 2; `REG_2B |= 0x0700`
-   (`App/apps/aisrx/gen_assets.py:52`, §7.2) is a second untested step, since
-   both come from an FM app. That is what would keep pulse edges sharp and give a
+   (`App/apps/aisrx/gen_assets.py:52`, §7.2) was a second untested step, since
+   both come from an FM app - **`REG_2B |= 0x0700` is now measured** and does
+   what it claims: the same noise floor streamed through both paths by
+   `App/apps/afstream` (2026-11-11) is flat from 800 to 3200 Hz with the raw
+   bits set, where the stock path slopes down about 4 dB an octave above
+   700 Hz (the de-emphasis), sits 12 dB lower below 200 Hz (the 300 Hz
+   high-pass) and 11 dB lower above 3200 Hz. The same pair of captures also
+   bounds the claim that the AF output is muted while the squelch is closed:
+   on the stock path, with the squelch bit read closed, the audio was on PA4
+   at 1282 rms all the same. That is what would keep pulse edges sharp and give a
    drifting transmitter somewhere to sit. One look with AF Scope on a keyed
    carrier settles it; until then the known-good configuration is the resident AM
    one, N or W, with W giving the 7 kHz filter. The validation in §9.1 records
@@ -1281,12 +1289,22 @@ Routes 1 and 2 are both CPU-bound polling loops, so an app picks one.
   SAW-based remotes often sit tens of kHz off nominal - more than the filter is
   wide. The workflow is therefore: find the carrier in the spectrum analyser,
   then tune to it.
-- **The ~1 kHz coupling at PA4** (open question 2, still unverified) makes long
-  marks droop on route 2. Decode edges, not levels. Route 1 does not have the
-  problem. Note that §9.1's evidence does **not** cover this: a homer is a
-  balanced 50 % square wave, whereas a remote frame has long gaps and a sync
-  gap. `sweep.c`'s own remark that the PA4 coupling is "close to a
-  differentiator" supports the hypothesis without measuring it.
+- **The ~1 kHz coupling at PA4** makes long marks droop on route 2. Decode
+  edges, not levels. Route 1 does not have the problem. Note that §9.1's
+  evidence does **not** cover this: a homer is a balanced 50 % square wave,
+  whereas a remote frame has long gaps and a sync gap. `sweep.c`'s own remark
+  that the PA4 coupling is "close to a differentiator" supported the
+  hypothesis without measuring it - and **open question 2 is now measured**:
+  10 s of squelch-open noise streamed to a PC through `App/apps/afstream`
+  (2026-11-11) fits a first-order high-pass at **fc ≈ 1050 Hz** to 1.17 dB
+  rms over 40-2600 Hz, against 1.57 dB at 700 Hz, 1.46 at 1500 and 3.29 at
+  300. The corner is near 1 kHz and the slope is first order. Two reservations
+  keep it short of settled: the input is the detector's own noise, assumed
+  flat, where a known tone sweep would be unambiguous; and the -22 dB above
+  3 kHz in the same capture is not the audio low-pass, which the RAW path
+  removes, so it is either the DSP's reconstruction band or 8 kHz sampling
+  near Nyquist - which is open question 1, and the same app answers it at
+  38.4 kHz.
 
 Transmitting or replaying OOK is a separate question, not analysed here.
 
@@ -1327,8 +1345,9 @@ decision is not an absolute threshold but the **high-to-period ratio inside each
 **What actually deforms the pulses** is the AF chain, not the quantisation. On
 the stock AM path REG_2B is untouched (§9.3), so the 3 kHz audio low-pass is in
 circuit and contributes edges of the order of 100 µs - substantial on a 208 µs
-pulse. If open question 2's ~1 kHz coupling holds (τ ≈ 160 µs), the 208 to 833 µs
-plateaus droop as well and the pulses arrive mostly as edges. Two consequences:
+pulse. Open question 2's ~1 kHz coupling is now measured at fc ≈ 1050 Hz
+(§9.4), i.e. τ ≈ 150 µs, so the 208 to 833 µs plateaus droop as well and the
+pulses arrive mostly as edges. Two consequences:
 
 - the slicer must be a **hysteresis comparator on the DC-removed signal**, i.e.
   `sweep.c`'s `sw_push` (§9.1); a threshold against a DC mean would fail;
@@ -1470,7 +1489,11 @@ into a SARADC pin) to get the same thing.
    bounds every capture app in this tree. Capture noise at 38.4 kHz with the AF
    filters bypassed (`REG_2B |= 0x0700`), and the ACF 1/e of that stream is the
    reconstruction interval; a sine fit near 10-19 kHz shows where the roll-off
-   really is. The v1 work shows the technique separates "register is slow" from
+   really is. **`App/apps/afstream` now provides that stream**: key 1 selects
+   38.4 kHz, key 2 the RAW path, and `tools/afstream.py` writes the WAV. The
+   8 kHz capture that measured §9.4's coupling already shows -22 dB above
+   3 kHz, which is either this reconstruction band or Nyquist, and only the
+   38.4 kHz capture separates them. The v1 work shows the technique separates "register is slow" from
    "input is slow" cleanly, which is exactly what §2.4 could not settle by
    argument.
 

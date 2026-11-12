@@ -56,16 +56,35 @@ def alsa_dev() -> str:
     return f"plughw:CARD={CARD},DEV=0"
 
 
-def pulse_sink() -> str | None:
+def pulse_dev(kind: str) -> str | None:
+    """The radio's PulseAudio sink or source, when PulseAudio is running."""
     try:
-        out = subprocess.run(["pactl", "list", "sinks", "short"],
+        out = subprocess.run(["pactl", "list", f"{kind}s", "short"],
                              capture_output=True, text=True).stdout
     except FileNotFoundError:
         return None
     for line in out.splitlines():
-        if "CDC_DEMO" in line:
+        if "CDC_DEMO" in line and ".monitor" not in line:
             return line.split()[1]
     return None
+
+
+def capture_proc() -> subprocess.Popen:
+    """Raw mono s16 at 8 kHz from the radio, on stdout.
+
+    Through PulseAudio when it is running, for the same reason the playback
+    side does: PulseAudio holds the card open for a while after each use, and
+    a direct plughw open then fails with "Device or resource busy" - which is
+    what a bare arecord hits a few seconds after any play.
+    """
+    src = pulse_dev("source")
+    if src:
+        return subprocess.Popen(["parecord", f"--device={src}", "--raw",
+                                 "--format=s16le", f"--rate={RATE}",
+                                 "--channels=1"], stdout=subprocess.PIPE)
+    return subprocess.Popen(["arecord", "-q", "-D", alsa_dev(), "-f", "S16_LE",
+                             "-r", str(RATE), "-c", "1", "-t", "raw"],
+                            stdout=subprocess.PIPE)
 
 
 def stats(radio: Radio) -> tuple:
@@ -117,7 +136,7 @@ def shape(raw: bytes, agc: bool = True, gain: float = 1.0) -> bytes:
 
 def feed(raw: bytes) -> subprocess.Popen:
     """Start the audio going to the radio, by the least invasive route."""
-    sink = pulse_sink()
+    sink = pulse_dev("sink")
     if sink:
         p = subprocess.Popen(["paplay", f"--device={sink}", "--raw",
                               "--format=s16le", "--rate", str(RATE),
@@ -159,11 +178,24 @@ def cmd_play(radio, a):
 
 
 def cmd_rec(radio, a):
-    subprocess.run(["arecord", "-q", "-D", alsa_dev(), "-f", "S16_LE",
-                    "-r", str(RATE), "-c", "1", "-d", str(a.seconds), a.out],
-                   check=True)
-    with wave.open(a.out) as w:
-        print(f"  {a.out}: {w.getnframes() / w.getframerate():.2f} s")
+    rec = capture_proc()
+    want = int(a.seconds * RATE) * 2
+    data = bytearray()
+    try:
+        while len(data) < want:
+            chunk = rec.stdout.read(min(4096, want - len(data)))
+            if not chunk:
+                break
+            data += chunk
+    finally:
+        rec.terminate()
+        rec.wait()
+    with wave.open(a.out, "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(RATE)
+        w.writeframes(bytes(data))
+    print(f"  {a.out}: {len(data) / 2 / RATE:.2f} s")
 
 
 def cmd_parrot(radio, a):
@@ -171,9 +203,7 @@ def cmd_parrot(radio, a):
     import numpy as np
     print(f"  parrot: listening (threshold {a.thr}, hang {a.hang} s)",
           flush=True)
-    rec = subprocess.Popen(["arecord", "-q", "-D", alsa_dev(), "-f", "S16_LE",
-                            "-r", str(RATE), "-c", "1", "-t", "raw"],
-                           stdout=subprocess.PIPE)
+    rec = capture_proc()
     buf = bytearray()
     heard = bytearray()
     last_voice = 0.0
@@ -199,9 +229,10 @@ def cmd_parrot(radio, a):
                     secs = len(heard) / 2 / RATE
                     print(f"  heard {secs:.1f} s -> sending it back",
                           flush=True)
-                    rec.send_signal(2)              # stop capturing to transmit
+                    rec.terminate()                 # stop capturing to transmit
                     rec.stdout.close()
                     rec.wait()
+                    time.sleep(0.2)                 # let the card settle
                     p = feed(shape(bytes(heard), not a.no_agc, a.gain))
                     time.sleep(0.25)
                     sent, dry, status = transmit(radio, int(secs * 1000) + a.margin)

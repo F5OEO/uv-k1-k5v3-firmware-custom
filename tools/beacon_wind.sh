@@ -22,6 +22,10 @@
 #   ./beacon_wind.sh 15 30 26 -n         # build the audio, do not transmit
 #   ./beacon_wind.sh 15 30 26 -a         # transmit through the Voice TX app
 #
+# The figures are given on the command line, so this says whatever it is told.
+# For a real station's wind, tools/beacon_ffvl.py reads the FFVL network's open
+# data and calls this with what the anemometer actually reported.
+#
 # By default the audio goes out through the firmware's own USB audio
 # transmitter, which needs no overlay app running and leaves the radio usable
 # between announcements.  -a takes the older route, 3-bit ADPCM over the CDC
@@ -69,7 +73,14 @@ else
     trap 'rm -rf "$OUT"' EXIT
 fi
 
-usage() { sed -n '17,28p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 2; }
+# The header block down to the announcement's wording, anchored on the text
+# and not on line numbers, which a later paragraph only pushes around.
+usage() {
+    awk '/^# Speak a wind/      { p = 1 }
+         /^# The announcement/  { exit }
+         p                      { sub(/^# ?/, ""); print }' "${BASH_SOURCE[0]}"
+    exit 2
+}
 
 [ $# -ge 3 ] || usage
 mean=$1 dir=$2 max=$3

@@ -22,19 +22,26 @@
 #define AUDIO_IN_EP       0x84      /* CDC holds 0x81, 0x02 and 0x83 */
 #define AUDIO_FREQ        8000u
 #define AUDIO_IN_MPS      18u       /* 9 samples: the asynchronous ceiling */
+#define AUDIO_OUT_EP      0x05      /* playback: host -> radio            */
 #define AUDIO_AC_INTF     0x02
-#define AUDIO_AS_INTF     0x03
-#define AUDIO_IN_TERM     0x01
-#define AUDIO_OUT_TERM    0x02
+#define AUDIO_AS_INTF     0x03      /* capture:  radio -> host            */
+#define AUDIO_AS_OUT_INTF 0x04      /* playback: host -> radio            */
+#define AUDIO_IN_TERM     0x01      /* microphone                          */
+#define AUDIO_OUT_TERM    0x02      /* USB streaming out                   */
+#define AUDIO_USB_TERM    0x03      /* USB streaming in                    */
+#define AUDIO_SPK_TERM    0x04      /* speaker: the transmitter            */
 /* The AudioControl macro emits its own IAD, interface and header; the two
  * terminals and the AudioStreaming interface follow it. */
-#define AUDIO_AC_TOTAL    (0x09 + AUDIO_SIZEOF_AC_INPUT_TERMINAL_DESC + \
-                           AUDIO_SIZEOF_AC_OUTPUT_TERMINAL_DESC)
-#define USB_AUDIO_SIZE    (AUDIO_AC_DESCRIPTOR_INIT_LEN(1) + \
-                           AUDIO_SIZEOF_AC_INPUT_TERMINAL_DESC + \
-                           AUDIO_SIZEOF_AC_OUTPUT_TERMINAL_DESC + \
+/* Two streaming interfaces in the collection now, and four terminals: the
+ * microphone path (1 -> 2) and the transmitter path (3 -> 4). */
+#define AUDIO_AC_TOTAL    (0x0A + 2u * AUDIO_SIZEOF_AC_INPUT_TERMINAL_DESC + \
+                           2u * AUDIO_SIZEOF_AC_OUTPUT_TERMINAL_DESC)
+#define USB_AUDIO_SIZE    (AUDIO_AC_DESCRIPTOR_INIT_LEN(2) + \
+                           2u * AUDIO_SIZEOF_AC_INPUT_TERMINAL_DESC + \
+                           2u * AUDIO_SIZEOF_AC_OUTPUT_TERMINAL_DESC + \
+                           AUDIO_AS_DESCRIPTOR_INIT_LEN(1) + \
                            AUDIO_AS_DESCRIPTOR_INIT_LEN(1))
-#define USB_INTF_COUNT    0x04
+#define USB_INTF_COUNT    0x05
 #define USB_BCD_DEVICE    0x0101    /* Windows caches descriptors per VID/PID */
 #else
 #define USB_AUDIO_SIZE    0
@@ -56,11 +63,16 @@ static const uint8_t cdc_descriptor[] = {
 #ifdef ENABLE_FEAT_F4HWN_USB_AUDIO
     /* AudioControl: one streaming interface in the collection, and the
      * minimal topology - microphone in, USB streaming out, no feature unit. */
-    AUDIO_AC_DESCRIPTOR_INIT(AUDIO_AC_INTF, 0x02, AUDIO_AC_TOTAL, 0x00, AUDIO_AS_INTF),
+    AUDIO_AC_DESCRIPTOR_INIT(AUDIO_AC_INTF, 0x03, AUDIO_AC_TOTAL, 0x00,
+                             AUDIO_AS_INTF, AUDIO_AS_OUT_INTF),
     AUDIO_AC_INPUT_TERMINAL_DESCRIPTOR_INIT(AUDIO_IN_TERM, AUDIO_INTERM_MIC, 0x01, 0x0000),
     AUDIO_AC_OUTPUT_TERMINAL_DESCRIPTOR_INIT(AUDIO_OUT_TERM, AUDIO_TERMINAL_STREAMING, AUDIO_IN_TERM),
+    AUDIO_AC_INPUT_TERMINAL_DESCRIPTOR_INIT(AUDIO_USB_TERM, AUDIO_TERMINAL_STREAMING, 0x01, 0x0000),
+    AUDIO_AC_OUTPUT_TERMINAL_DESCRIPTOR_INIT(AUDIO_SPK_TERM, AUDIO_OUTTERM_SPEAKER, AUDIO_USB_TERM),
     AUDIO_AS_IN_ASYNC_DESCRIPTOR_INIT(AUDIO_AS_INTF, AUDIO_OUT_TERM, 0x01, AUDIO_IN_EP,
                                       AUDIO_IN_MPS, 0x01, AUDIO_SAMPLE_FREQ_3B(AUDIO_FREQ)),
+    AUDIO_AS_OUT_ADAPTIVE_DESCRIPTOR_INIT(AUDIO_AS_OUT_INTF, AUDIO_USB_TERM, 0x01, AUDIO_OUT_EP,
+                                          AUDIO_IN_MPS, 0x01, AUDIO_SAMPLE_FREQ_3B(AUDIO_FREQ)),
 #endif
     ///////////////////////////////////////
     /// string0 descriptor

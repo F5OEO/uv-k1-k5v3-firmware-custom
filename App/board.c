@@ -19,6 +19,9 @@
 
 #ifdef ENABLE_FMRADIO
     #include "app/fm.h"
+#ifdef ENABLE_FEAT_F4HWN_USB_AUDIO
+#include "usb/usbd_audio_if.h"
+#endif
 #endif
 #include "board.h"
 #ifdef ENABLE_FEAT_F4HWN_OVERLAY_APPS
@@ -176,6 +179,16 @@ void BOARD_ADC_Init(void)
 
 void BOARD_ADC_GetBatteryInfo(uint16_t *pVoltage, uint16_t *pCurrent)
 {
+#ifdef ENABLE_FEAT_F4HWN_USB_AUDIO
+    /* While the USB microphone streams, the ADC runs a two-rank scan off
+     * TIM3 and its DMA owns the result register: converting here would
+     * retarget it and punch a hole in the audio twice a second. The battery
+     * sample rides in the same ring, so take it from there. */
+    if (USBAUDIO_Battery(pVoltage)) {
+        *pCurrent = 0;
+        return;
+    }
+#endif
 #ifdef ENABLE_FEAT_F4HWN_OVERLAY_APPS
     /* An overlay app may hold the ADC on PA4 (RX audio capture): the battery
      * channel back for this conversion, whoever asks for it. */

@@ -19,6 +19,9 @@
 
 #if !defined(ENABLE_OVERLAY)
     #include "py32f0xx.h"
+#ifdef ENABLE_FEAT_F4HWN_USB_AUDIO
+#include "usb/usbd_audio_if.h"
+#endif
 #endif
 #ifdef ENABLE_FMRADIO_EMBEDDED
     #include "app/fm.h"
@@ -1082,6 +1085,67 @@ void UART_HandleCommand(uint32_t Port)
             SendReply(Port, &Reply, sizeof(Reply));
             break;
         }
+
+#ifdef ENABLE_FEAT_F4HWN_USB_AUDIO
+        case 0x0752: // USB audio: transmit what the host is streaming
+        {
+            /* Nothing transmits because an audio stream opened: PulseAudio
+             * adopts the sink by itself and pushes silence for ever. The
+             * carrier goes up here, for the milliseconds this command names,
+             * and the session timestamp has to match - the same rule the
+             * slot writes follow. */
+            if (pUART_Command->Header.Size < 6u) break;
+            gSerialConfigCountDown_500ms = 12;
+            uint16_t ms = (uint16_t)(pUART_Command->Data[0]
+                        | ((uint16_t)pUART_Command->Data[1] << 8));
+            uint32_t ts = (uint32_t)pUART_Command->Data[2]
+                        | ((uint32_t)pUART_Command->Data[3] << 8)
+                        | ((uint32_t)pUART_Command->Data[4] << 16)
+                        | ((uint32_t)pUART_Command->Data[5] << 24);
+            uint32_t sent = 0;
+            uint16_t dry = 0;
+            uint8_t  status;
+            if (ts != mb_port_timestamp(Port))
+                status = 6;                     /* timestamp refused        */
+            else
+                status = USBAUDIO_Transmit(ms, &sent, &dry);
+            struct __attribute__((packed)) {
+                Header_t Header;
+                uint32_t Sent;      // samples put on the air
+                uint16_t Dry;       // 125 us holds: the host fell behind
+                uint8_t  Status;
+            } Reply;
+            Reply.Header.ID   = 0x0753;
+            Reply.Header.Size = 7;
+            Reply.Sent        = sent;
+            Reply.Dry         = dry;
+            Reply.Status      = status;
+            SendReply(Port, &Reply, sizeof(Reply));
+            break;
+        }
+
+        case 0x0750: // USB audio: what the playback endpoint has received
+        {
+            uint32_t delivered;
+            uint16_t queued, lost;
+            USBAUDIO_PlayStats(&delivered, &queued, &lost);
+            struct __attribute__((packed)) {
+                Header_t Header;
+                uint32_t Delivered;   // samples the host has sent, since boot
+                uint16_t Queued;      // waiting in the ring now
+                uint16_t Lost;        // dropped: nothing drains it yet
+                uint8_t  Capturing;   // the microphone stream is up
+            } Reply;
+            Reply.Header.ID   = 0x0751;
+            Reply.Header.Size = 9;
+            Reply.Delivered   = delivered;
+            Reply.Queued      = queued;
+            Reply.Lost        = lost;
+            Reply.Capturing   = USBAUDIO_Streaming() ? 1u : 0u;
+            SendReply(Port, &Reply, sizeof(Reply));
+            break;
+        }
+#endif
 
         case 0x0728: // config reset: wipe the 64 KiB of a config bank (1..4)
         {

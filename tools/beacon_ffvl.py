@@ -19,6 +19,7 @@
     ./beacon_ffvl.py 5111 -n           # build the audio, do not transmit
     ./beacon_ffvl.py 5111 -a           # transmit through the Voice TX app
     ./beacon_ffvl.py 5111 --print      # just the figures, no voice at all
+    ./beacon_ffvl.py 5111 --every 30   # and again every half hour, until Ctrl-C
     ./beacon_ffvl.py --list            # the beacons reporting right now
     ./beacon_ffvl.py --list jarzay     # search all of them by name, id or dept
 
@@ -44,8 +45,18 @@ than silence.  The age is always printed, so a cron log shows what went out.
 
 Nothing is cached but balises.json, which changes daily; releves.json is
 fetched every run.
+
+REPEATING.  --every MIN keeps announcing until it is stopped, which is the
+other way to run this - no cron line, and the station's name is spoken from a
+copy of balises.json that is already in hand.  Each round fetches the readings
+again, and a round that fails for any of the reasons above loses its slot and
+says so rather than ending the service.  Note what the mirror's lag does to a
+short period: below about fifteen minutes the same reading comes round twice,
+so the radio repeats figures it has already given.  That is what a VOLMET does
+all day and is perfectly respectable, but it is not new information.
 """
-import argparse, datetime, json, os, re, subprocess, sys, time, unicodedata
+import argparse, datetime, http.client, json, os, re, subprocess, sys, time
+import unicodedata
 import urllib.request
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -145,31 +156,12 @@ def do_list(pattern):
     return 0
 
 
-def main():
-    ap = argparse.ArgumentParser(
-        description=__doc__.splitlines()[0],
-        epilog="The figures are the federation's; what the radio says is yours "
-               "to stand behind.")
-    ap.add_argument("id", nargs="?", type=int, help="idBalise of the station")
-    ap.add_argument("-n", action="store_true",
-                    help="build the audio, do not transmit")
-    ap.add_argument("-a", action="store_true",
-                    help="transmit through the Voice TX app, not the firmware")
-    ap.add_argument("--print", dest="only_print", action="store_true",
-                    help="print the reading and stop")
-    ap.add_argument("--list", nargs="?", const="", metavar="PATTERN",
-                    help="list live beacons, or search all by name/id/dept")
-    ap.add_argument("--max-age", type=float, default=3600.0, metavar="S",
-                    help="refuse a reading older than this (0 disables)")
-    ap.add_argument("--site", help="override the name the voice says")
-    a = ap.parse_args()
-
-    if a.list is not None:
-        return do_list(a.list)
-    if a.id is None:
-        ap.error("give a beacon id, or --list to find one")
-
+def once(a):
+    """One announcement.  The return code is the script's when it runs once;
+    inside a loop every non-zero value means this slot was missed, never that
+    the service should stop."""
     sta, rel = stations(), readings()
+
     s = sta.get(a.id)
     if s is None:
         print(f"no beacon {a.id} in the network ({len(sta)} known) - "
@@ -214,12 +206,99 @@ def main():
     elif a.a:
         cmd.append("-a")
     env = dict(os.environ, SITE=site)
-    # Flushed first, or a cron log shows the announcement before the reading it
-    # came from: stdout is block-buffered the moment it is a pipe, so our own
-    # lines would sit in the buffer until exit while the child writes straight
-    # to the file.
+    # The child writes to the same descriptor, so our side goes out first.
     sys.stdout.flush()
     return subprocess.call(cmd, env=env)
+
+
+def serve(a):
+    """Announce every --every minutes until something stops us.
+
+    A service left running for hours has to survive what a single shot can
+    simply die on: data.gouv.fr unreachable, the station falling silent, the
+    crawl gone stale.  Each of those costs one slot and says why; none of them
+    ends the loop.  Slots are counted from the first announcement instead of
+    being measured from the end of the last, so the seven seconds of speech -
+    and anything slower - do not walk the schedule forward.
+    """
+    period = a.every * 60.0
+    t0 = time.monotonic()
+    slot = done = ok = missed = 0
+    print(f"  balise {a.id} toutes les {a.every:g} min"
+          + (f", {a.count} fois" if a.count else ", jusqu'a Ctrl-C"))
+    try:
+        while not a.count or done < a.count:
+            due = t0 + slot*period
+            now = time.monotonic()
+            if now < due:
+                time.sleep(due - now)
+            elif slot and now - due >= period:
+                # Something took longer than a whole period.  Drop the slots
+                # that went by rather than fire them off back to back: a
+                # beacon that suddenly talks three times says nothing useful.
+                lost = int((now - due) // period)
+                print(f"  {lost} creneau(x) passe(s) pendant l'annonce "
+                      f"precedente, ignore(s)", file=sys.stderr)
+                missed += lost
+                slot += lost
+                continue
+            print(f"\n--- {time.strftime('%H:%M:%S')}  annonce {done+1}"
+                  + (f"/{a.count}" if a.count else ""))
+            try:
+                rc = once(a)
+            except (OSError, ValueError, http.client.HTTPException) as e:
+                # The network and the mirror are allowed to fail; we are not.
+                print(f"  donnees indisponibles: {e.__class__.__name__}: {e}",
+                      file=sys.stderr)
+                rc = 5
+            ok, missed = (ok+1, missed) if rc == 0 else (ok, missed+1)
+            done += 1
+            slot += 1
+    except KeyboardInterrupt:
+        print()
+    print(f"  {ok} annonce(s), {missed} manquee(s)")
+    return 0 if ok else 1
+
+
+def main():
+    ap = argparse.ArgumentParser(
+        description=__doc__.splitlines()[0],
+        epilog="The figures are the federation's; what the radio says is yours "
+               "to stand behind.")
+    ap.add_argument("id", nargs="?", type=int, help="idBalise of the station")
+    ap.add_argument("-n", action="store_true",
+                    help="build the audio, do not transmit")
+    ap.add_argument("-a", action="store_true",
+                    help="transmit through the Voice TX app, not the firmware")
+    ap.add_argument("--print", dest="only_print", action="store_true",
+                    help="print the reading and stop")
+    ap.add_argument("--list", nargs="?", const="", metavar="PATTERN",
+                    help="list live beacons, or search all by name/id/dept")
+    ap.add_argument("--max-age", type=float, default=3600.0, metavar="S",
+                    help="refuse a reading older than this (0 disables)")
+    ap.add_argument("--site", help="override the name the voice says")
+    ap.add_argument("--every", type=float, metavar="MIN",
+                    help="repeat every MIN minutes until stopped, instead of "
+                         "announcing once and exiting")
+    ap.add_argument("--count", type=int, default=0, metavar="N",
+                    help="with --every, stop after N announcements")
+    a = ap.parse_args()
+    # A service's log is read in order, and stderr is never buffered.  Without
+    # this, stdout turns block-buffered the moment it is a pipe or a file, and
+    # every warning lands above the announcement it belongs to.
+    sys.stdout.reconfigure(line_buffering=True)
+
+    if a.list is not None:
+        return do_list(a.list)
+    if a.id is None:
+        ap.error("give a beacon id, or --list to find one")
+    if a.every is not None and a.every <= 0:
+        ap.error("--every wants a number of minutes above zero")
+    if a.count and a.every is None:
+        ap.error("--count counts announcements, so it needs --every")
+    if a.every is None:
+        return once(a)
+    return serve(a)
 
 
 if __name__ == "__main__":

@@ -20,6 +20,12 @@
 #   ./beacon_wind.sh 15 30 26            # degrees, as a vane reports them
 #   ./beacon_wind.sh 15 NNE 26           # or a compass point, if you have one
 #   ./beacon_wind.sh 15 30 26 -n         # build the audio, do not transmit
+#   ./beacon_wind.sh 15 30 26 -a         # transmit through the Voice TX app
+#
+# By default the audio goes out through the firmware's own USB audio
+# transmitter, which needs no overlay app running and leaves the radio usable
+# between announcements.  -a takes the older route, 3-bit ADPCM over the CDC
+# port into Voice TX, for a firmware built without ENABLE_FEAT_F4HWN_USB_AUDIO.
 #
 # The announcement is
 #
@@ -38,8 +44,10 @@
 # This is the thing a cron line calls every half hour: read the anemometer,
 # call this, and the radio says the new figures.  Nothing is written to the
 # radio's flash - the clip is streamed over USB at the moment of transmission
-# - so there is no wear and no install, but Voice TX 3.2 or later has to be
-# running on the radio.  See tools/beacon_say.py.
+# - so there is no wear and no install.  On the default route nothing has to
+# be running on the radio either: it answers from its normal screen and is
+# free for its usual job in between.  See tools/uacaudio.py, and
+# tools/beacon_say.py for -a.
 #
 # Piper and its voice are not in this repository; TTS points at the install.
 set -euo pipefail
@@ -61,12 +69,14 @@ else
     trap 'rm -rf "$OUT"' EXIT
 fi
 
-usage() { sed -n '17,33p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 2; }
+usage() { sed -n '17,28p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 2; }
 
 [ $# -ge 3 ] || usage
 mean=$1 dir=$2 max=$3
 transmit=yes
+route=usb                     # how the audio reaches the air; see below
 [ "${4:-}" = "-n" ] && transmit=no
+[ "${4:-}" = "-a" ] && route=app
 
 for v in "$mean" "$max"; do
     [[ $v =~ ^[0-9]{1,3}$ ]] || { echo "not a wind speed: $v" >&2; exit 2; }
@@ -119,4 +129,15 @@ if [ "$transmit" = no ]; then
     trap - EXIT                 # the caller asked for the file: leave it
     exit 0
 fi
-"$PY" "$HERE/beacon_say.py" --port "$PORT" "$wav"
+if [ "$route" = app ]; then
+    # The old route: 3-bit ADPCM over the CDC port into the Voice TX overlay,
+    # which has to be running on the radio for anything to come out.
+    "$PY" "$HERE/beacon_say.py" --port "$PORT" "$wav"
+else
+    # The firmware's own transmitter (ENABLE_FEAT_F4HWN_USB_AUDIO): raw PCM
+    # over the isochronous endpoint, no encoder, no app, and the radio stays
+    # on its normal screen between announcements instead of being held in a
+    # modal app all day. Measured: 5.72 s of carrier for a 5.47 s clip, no
+    # dry spell, and the ADPCM's 16.8 dB no longer sits in the path.
+    python3 -B "$HERE/uacaudio.py" --port "$PORT" play "$wav"
+fi
